@@ -41,6 +41,8 @@ class FocusTimerService : Service() {
         private const val TAG = "FocusTimerService"
         const val ACTION_START_TIMER = "com.example.action.START_FOCUS_TIMER"
         const val ACTION_STOP_TIMER = "com.example.action.STOP_FOCUS_TIMER"
+        // v1.1.5: must match FocuslyViewModel.KEY_LAST_COMPLETED_END_TIME_MS.
+        private const val KEY_LAST_COMPLETED_END = "last_completed_end_time_ms"
         const val EXTRA_END_TIME_MS = "extra_end_time_ms"
         const val EXTRA_TARGET_SECONDS = "extra_target_seconds"
         const val EXTRA_TASK_TITLE = "extra_task_title"
@@ -164,8 +166,25 @@ class FocusTimerService : Service() {
      * Completes a session whose end time passed without the UI alive: records the
      * session row (like a normal finish), clears timer prefs, stops the service,
      * and posts a completion notification so the user knows it counted.
+     *
+     * v1.1.5: checks the shared end-time claim marker first — the ViewModel's tick
+     * or cold-start restore may have already recorded this exact session. Paused /
+     * discarded sessions never reach here (their end-time is cleared on pause).
      */
     private suspend fun completeMissedSession(targetSeconds: Int, taskTitle: String, mode: String, endTimeMs: Long) {
+        try {
+            val claimPrefs = getSharedPreferences(PREFS_LOCAL, Context.MODE_PRIVATE)
+            val alreadyClaimed = claimPrefs.getLong(KEY_LAST_COMPLETED_END, 0L)
+            if (endTimeMs != 0L && alreadyClaimed == endTimeMs) {
+                Log.i(TAG, "Missed session for endTime=$endTimeMs already recorded; skipping duplicate")
+                clearTimerPrefs()
+                stopForegroundSafely()
+                stopSelf()
+                return
+            }
+            // Claim it synchronously before recording.
+            claimPrefs.edit().putLong(KEY_LAST_COMPLETED_END, endTimeMs).commit()
+        } catch (_: Throwable) {}
         try {
             val cal = Calendar.getInstance()
             val dayOfWeek = cal.get(Calendar.DAY_OF_WEEK)

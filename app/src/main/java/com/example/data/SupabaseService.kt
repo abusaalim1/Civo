@@ -40,6 +40,22 @@ class SupabaseService {
 
     private val client = SupabaseManager.client
 
+    /**
+     * v1.1.5: belt-and-braces explicit session persistence right after auth succeeds.
+     * The Auth plugin's autoSaveToStorage should already handle this, but an explicit
+     * save removes any doubt that the session survives process death.
+     */
+    private suspend fun persistSessionNow() {
+        try {
+            val ctx = SupabaseManager.getApplicationContext() ?: return
+            val session = client.auth.currentSessionOrNull() ?: return
+            AndroidPreferenceSessionManager(ctx).saveSession(session)
+            Log.d(TAG, "persistSessionNow: session explicitly saved for user=${session.user?.id}")
+        } catch (e: Exception) {
+            Log.w(TAG, "persistSessionNow failed: ${e.message}")
+        }
+    }
+
     suspend fun awaitSessionRestoration(): String? = withContext(Dispatchers.IO) {
         try {
             client.auth.awaitInitialization()
@@ -241,6 +257,7 @@ class SupabaseService {
                 Log.w(TAG, "Error inserting into public.study_leaderboard: ${e.message}")
             }
 
+            persistSessionNow()
             Result.success(userId)
         } catch (e: Exception) {
             Log.w(TAG, "SignUp attempt failed: ${e.message}")
@@ -269,6 +286,7 @@ class SupabaseService {
             val user = client.auth.currentUserOrNull()
             val userId = user?.id ?: return@withContext Result.failure(Exception("Supabase login succeeded but no user ID returned"))
 
+            persistSessionNow()
             Result.success(userId)
         } catch (e: Exception) {
             Log.w(TAG, "SignIn attempt failed: ${e.message}")

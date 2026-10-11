@@ -54,6 +54,12 @@ import java.security.MessageDigest
 class FocuslyViewModel(application: Application) : AndroidViewModel(application) {
     companion object {
         private const val TAG = "FocuslyViewModel"
+        /**
+         * v1.1.5: atomic "already recorded" claim for a timer end-time, shared with
+         * FocusTimerService. Prevents the same session being recorded twice when the
+         * ViewModel tick, the service ticker, and the cold-start restore race.
+         */
+        const val KEY_LAST_COMPLETED_END_TIME_MS = "last_completed_end_time_ms"
     }
 
     val authManager = FirebaseAuthManager.getInstance(application)
@@ -573,6 +579,11 @@ class FocuslyViewModel(application: Application) : AndroidViewModel(application)
             } catch (t: Throwable) {
                 // v1.1.2: NO single failing subsystem may kill the app at launch.
                 Log.e(TAG, "Cold-start init failed (guarded, app continues): ${t.message}", t)
+                try {
+                    // v1.1.5: a non-auth subsystem failure must NEVER strand a logged-in
+                    // user on the login screen. Restore the session standalone.
+                    restoreAuthSessionStandalone()
+                } catch (_: Throwable) {}
                 try { _isAuthChecking.value = false } catch (_: Throwable) {}
             }
         }
@@ -628,58 +639,14 @@ class FocuslyViewModel(application: Application) : AndroidViewModel(application)
                 _standaloneShieldRemainingSeconds.value = 0
             }
 
-            // 2. Restore persistent Supabase or local Guest session on cold start before UI rendering
+            // 2. Restore persistent Supabase or local Guest session on cold start before UI rendering.
+            // v1.1.5: independently guarded — a failure in timer/alarms/guard init above
+            // must never skip or break auth restore (that stranded users on login).
             _isAuthChecking.value = true
-            val restoredUid: String? = SupabaseService.getInstance().awaitSessionRestoration()
-            if (!restoredUid.isNullOrBlank()) {
-                restoreUserAccount(restoredUid)
-            } else {
-                // Check if user is a logged-in Guest or has existing local account stored
-                val isGuest = AndroidPreferenceSessionManager.appContext?.let { AndroidPreferenceSessionManager.isGuestSession(it) } ?: false
-                val storedUid = AndroidPreferenceSessionManager.appContext?.let { AndroidPreferenceSessionManager.getStoredUserId(it) }
-                val guestStorage = com.example.data.GuestDataStorageManager.getInstance(app)
-                val storedGuestProfile = guestStorage.loadGuestProfile()
-                val localPrefs = repository.userPreferences.firstOrNull() ?: UserPreferencesEntity()
-                val localUser = if (!localPrefs.currentUserEmail.isNullOrBlank()) {
-                    repository.getUserByEmail(localPrefs.currentUserEmail)
-                } else if (localPrefs.currentUserId != null) {
-                    repository.getUserById(localPrefs.currentUserId)
-                } else null
-
-                if (localUser != null) {
-                    _currentUser.value = localUser
-                    val isSurveyCompleted = localPrefs.hasCompletedIntakeSurvey || localPrefs.hasCompletedOnboarding || localUser.hasCompletedIntakeSurvey
-                    _showQuestionnaire.value = !isSurveyCompleted
-                    Log.d("StartupAuth", "[SessionRestore] Restored local account from database: ${localUser.email}, surveyCompleted=$isSurveyCompleted")
-                } else if (isGuest || storedGuestProfile != null || !storedUid.isNullOrBlank()) {
-                    val finalUid = storedGuestProfile?.guestId
-                        ?: (if (!storedUid.isNullOrBlank()) storedUid else "guest_${System.currentTimeMillis()}")
-                    val guestName = storedGuestProfile?.guestName
-                        ?: AndroidPreferenceSessionManager.appContext?.let { AndroidPreferenceSessionManager.getStoredGuestName(it) }
-                        ?: localPrefs.currentUserName
-                        ?: "Guest Scholar"
-                    val guestEmail = storedGuestProfile?.guestEmail
-                        ?: AndroidPreferenceSessionManager.appContext?.let { AndroidPreferenceSessionManager.getStoredEmail(it) }
-                        ?: localPrefs.currentUserEmail
-                        ?: "guest_${finalUid.take(8)}@focusly.app"
-
-                    val guestUser = UserAccountEntity(
-                        id = Math.abs(finalUid.hashCode().toLong()).coerceAtLeast(1L),
-                        email = guestEmail,
-                        fullName = guestName,
-                        firebaseUid = finalUid,
-                        photoUrl = localPrefs.currentUserPhotoUrl,
-                        hasCompletedIntakeSurvey = localPrefs.hasCompletedIntakeSurvey || localPrefs.hasCompletedOnboarding,
-                        isGoogleUser = false
-                    )
-                    repository.registerUser(guestUser)
-                    _currentUser.value = guestUser
-                    val isSurveyCompleted = localPrefs.hasCompletedIntakeSurvey || localPrefs.hasCompletedOnboarding
-                    _showQuestionnaire.value = !isSurveyCompleted
-                    Log.d("StartupAuth", "[SessionRestore] Restored local Guest account from guest_data: $finalUid, name=$guestName, surveyCompleted=$isSurveyCompleted")
-                } else {
-                    _currentUser.value = null
-                }
+            try {
+                restoreAuthSessionStandalone()
+            } catch (t: Throwable) {
+                Log.e(TAG, "Auth restore failed (guarded): ${t.message}", t)
             }
             _isAuthChecking.value = false
 
@@ -691,16 +658,100 @@ class FocuslyViewModel(application: Application) : AndroidViewModel(application)
             refreshInstalledApps()
     }
 
+    /**
+     * v1.1.5: standalone auth/session restore, extracted from coldStartInit.
+     * Never throws outward. Guarantees: when a session (or stored uid) exists,
+     * [_currentUser] is set — the login screen only appears when there is
+     * genuinely no saved session.
+     */
+    private suspend fun restoreAuthSessionStandalone() {
+        val app = getApplication<Application>()
+        val restoredUid: String? = try {
+            SupabaseService.getInstance().awaitSessionRestoration()
+        } catch (t: Throwable) {
+            Log.w(TAG, "awaitSessionRestoration failed: ${t.message}")
+            null
+        }
+        if (!restoredUid.isNullOrBlank()) {
+            restoreUserAccount(restoredUid)
+            return
+        }
+        // Check if user is a logged-in Guest or has existing local account stored
+        val isGuest = AndroidPreferenceSessionManager.appContext?.let { AndroidPreferenceSessionManager.isGuestSession(it) } ?: false
+        val storedUid = AndroidPreferenceSessionManager.appContext?.let { AndroidPreferenceSessionManager.getStoredUserId(it) }
+        val guestStorage = com.example.data.GuestDataStorageManager.getInstance(app)
+        val storedGuestProfile = guestStorage.loadGuestProfile()
+        val localPrefs = repository.userPreferences.firstOrNull() ?: UserPreferencesEntity()
+        val localUser = if (!localPrefs.currentUserEmail.isNullOrBlank()) {
+            repository.getUserByEmail(localPrefs.currentUserEmail)
+        } else if (localPrefs.currentUserId != null) {
+            repository.getUserById(localPrefs.currentUserId)
+        } else null
+
+        if (localUser != null) {
+            _currentUser.value = localUser
+            val isSurveyCompleted = localPrefs.hasCompletedIntakeSurvey || localPrefs.hasCompletedOnboarding || localUser.hasCompletedIntakeSurvey
+            _showQuestionnaire.value = !isSurveyCompleted
+            Log.d("StartupAuth", "[SessionRestore] Restored local account from database: ${localUser.email}, surveyCompleted=$isSurveyCompleted")
+        } else if (isGuest || storedGuestProfile != null || !storedUid.isNullOrBlank()) {
+            val finalUid = storedGuestProfile?.guestId
+                ?: (if (!storedUid.isNullOrBlank()) storedUid else "guest_${System.currentTimeMillis()}")
+            val guestName = storedGuestProfile?.guestName
+                ?: AndroidPreferenceSessionManager.appContext?.let { AndroidPreferenceSessionManager.getStoredGuestName(it) }
+                ?: localPrefs.currentUserName
+                ?: "Guest Scholar"
+            val guestEmail = storedGuestProfile?.guestEmail
+                ?: AndroidPreferenceSessionManager.appContext?.let { AndroidPreferenceSessionManager.getStoredEmail(it) }
+                ?: localPrefs.currentUserEmail
+                ?: "guest_${finalUid.take(8)}@focusly.app"
+
+            val guestUser = UserAccountEntity(
+                id = Math.abs(finalUid.hashCode().toLong()).coerceAtLeast(1L),
+                email = guestEmail,
+                fullName = guestName,
+                firebaseUid = finalUid,
+                photoUrl = localPrefs.currentUserPhotoUrl,
+                hasCompletedIntakeSurvey = localPrefs.hasCompletedIntakeSurvey || localPrefs.hasCompletedOnboarding,
+                isGoogleUser = false
+            )
+            repository.registerUser(guestUser)
+            _currentUser.value = guestUser
+            val isSurveyCompleted = localPrefs.hasCompletedIntakeSurvey || localPrefs.hasCompletedOnboarding
+            _showQuestionnaire.value = !isSurveyCompleted
+            Log.d("StartupAuth", "[SessionRestore] Restored local Guest account from guest_data: $finalUid, name=$guestName, surveyCompleted=$isSurveyCompleted")
+        } else {
+            _currentUser.value = null
+        }
+    }
+
     suspend fun restoreUserAccount(restoredUid: String) {
         _isProfileLoading.value = true
         _profileError.value = null
         try {
-            // First sync with Supabase to pull remote points, streak, profile & preferences
-            repository.syncWithSupabase(restoredUid)
-            refreshAlarms()
-            refreshScheduledBlocks()
+            // v1.1.5: network enrichment is best-effort — it must NEVER prevent the
+            // session restore (a flaky network at launch used to dump users on login).
+            try {
+                repository.syncWithSupabase(restoredUid)
+            } catch (e: Exception) {
+                Log.w(TAG, "restoreUserAccount: syncWithSupabase failed (offline?): ${e.message}")
+            }
+            try {
+                refreshAlarms()
+            } catch (e: Exception) {
+                Log.w(TAG, "restoreUserAccount: refreshAlarms failed: ${e.message}")
+            }
+            try {
+                refreshScheduledBlocks()
+            } catch (e: Exception) {
+                Log.w(TAG, "restoreUserAccount: refreshScheduledBlocks failed: ${e.message}")
+            }
 
-            val profile = SupabaseService.getInstance().fetchUserProfile(restoredUid)
+            val profile = try {
+                SupabaseService.getInstance().fetchUserProfile(restoredUid)
+            } catch (e: Exception) {
+                Log.w(TAG, "restoreUserAccount: fetchUserProfile failed: ${e.message}")
+                null
+            }
             val currentPrefs = repository.userPreferences.firstOrNull() ?: UserPreferencesEntity()
 
             val userEmail: String = profile?.email
@@ -755,10 +806,33 @@ class FocuslyViewModel(application: Application) : AndroidViewModel(application)
 
             _showQuestionnaire.value = !finalSurveyCompleted
             Log.i("FocuslyViewModel", "restoreUserAccount finished: uid=$restoredUid, isSurveyCompletedInDb=$isSurveyCompletedInDb, showQuestionnaire=${!finalSurveyCompleted}, avatar_url=$photoUrl")
-            checkWeeklyReview()
+            try {
+                checkWeeklyReview()
+            } catch (e: Exception) {
+                Log.w(TAG, "restoreUserAccount: checkWeeklyReview failed: ${e.message}")
+            }
         } catch (e: Exception) {
-            _profileError.value = e.message ?: "Failed to fetch user profile"
+            // v1.1.5 LAST RESORT: a valid session must never land on the login screen.
+            // Build an offline user from the durable local prefs saved at login time.
             Log.e("FocuslyViewModel", "restoreUserAccount error: ${e.message}", e)
+            try {
+                val offlinePrefs = repository.userPreferences.firstOrNull() ?: UserPreferencesEntity()
+                val offlineEmail = offlinePrefs.currentUserEmail?.takeIf { it.isNotBlank() }
+                    ?: ("user_" + restoredUid.take(6) + "@focusly.app")
+                val offlineName = offlinePrefs.currentUserName?.takeIf { it.isNotBlank() }
+                    ?: offlineEmail.substringBefore("@")
+                _currentUser.value = UserAccountEntity(
+                    id = Math.abs(restoredUid.hashCode().toLong()).coerceAtLeast(1L),
+                    email = offlineEmail,
+                    fullName = offlineName,
+                    firebaseUid = restoredUid,
+                    photoUrl = offlinePrefs.currentUserPhotoUrl,
+                    hasCompletedIntakeSurvey = offlinePrefs.hasCompletedIntakeSurvey || offlinePrefs.hasCompletedOnboarding
+                )
+                _showQuestionnaire.value = !(offlinePrefs.hasCompletedIntakeSurvey || offlinePrefs.hasCompletedOnboarding)
+                Log.i("FocuslyViewModel", "restoreUserAccount: offline fallback user set for $restoredUid")
+            } catch (_: Throwable) {}
+            _profileError.value = e.message ?: "Failed to fetch user profile"
         } finally {
             _isProfileLoading.value = false
         }
@@ -2198,10 +2272,13 @@ class FocuslyViewModel(application: Application) : AndroidViewModel(application)
             // normal path (records the session + points + shows the completion screen).
             // Clear the flags FIRST (atomic claim) so the service's own missed-session
             // handler cannot record the same session twice.
+            // v1.1.5: also claim the end-time marker (commit = synchronous) for the
+            // same reason — the service may have read the flags just before we cleared.
             prefs.edit()
                 .putBoolean("is_manual_timer_running", false)
                 .putLong("manual_timer_end_time_ms", 0L)
-                .apply()
+                .putLong(KEY_LAST_COMPLETED_END_TIME_MS, endTime)
+                .commit()
             tPrefs.edit().putBoolean("is_timer_running", false).apply()
             _targetSeconds.value = storedTarget
             _remainingSeconds.value = 0
@@ -2326,7 +2403,27 @@ class FocuslyViewModel(application: Application) : AndroidViewModel(application)
     }
 
     fun finishSessionEarly() {
-        onTimerCompleted()
+        // v1.1.5: owner rule — ONLY sessions whose timer runs to natural completion
+        // are recorded. Finishing early DISCARDS the session: no record, no points,
+        // no streak change, no completion screen.
+        discardActiveSession()
+    }
+
+    /**
+     * v1.1.5: stops the active timer and resets to idle WITHOUT recording anything.
+     * Used for paused/discarded/abandoned sessions — they must never count.
+     */
+    private fun discardActiveSession() {
+        pauseTimer()
+        _remainingSeconds.value = _targetSeconds.value
+        accumulatedSessionElapsedSecs = 0
+        sessionStartTimeMs = 0L
+        _distractionsCount.value = 0
+        _loggedDistractions.value = emptyList()
+        _sessionNotes.value = ""
+        _completedSessionSummary.value = null
+        _showCompletionScreen.value = false
+        Log.i(TAG, "Session discarded early (not recorded): no points/streak change")
     }
 
     fun skipBreak() {
@@ -2389,6 +2486,17 @@ class FocuslyViewModel(application: Application) : AndroidViewModel(application)
     }
 
     private fun onTimerCompleted() {
+        // v1.1.5: claim this completion FIRST (before pauseTimer clears the flags) so
+        // the FocusTimerService ticker / cold-start restore paths can never record the
+        // same session a second time.
+        try {
+            val app = getApplication<Application>()
+            val bootPrefs = app.getSharedPreferences("focusly_local_data", Context.MODE_PRIVATE)
+            val endTimeMs = bootPrefs.getLong("manual_timer_end_time_ms", 0L)
+            if (endTimeMs != 0L) {
+                bootPrefs.edit().putLong(KEY_LAST_COMPLETED_END_TIME_MS, endTimeMs).commit()
+            }
+        } catch (_: Throwable) {}
         pauseTimer()
         if (userPreferences.value?.notificationsEnabled == true) {
             audioEngine.playCompletionChime()
