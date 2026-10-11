@@ -238,7 +238,7 @@ object GeminiContentClassifier {
             ""
         }
 
-        if (apiKey.isBlank() || apiKey == "MY_GEMINI_API_KEY") {
+        if (apiKey.isBlank() || apiKey == "MY_GEMINI_API_KEY" || apiKey == "<redacted>") {
             Log.d(TAG, "Gemini API key is placeholder or blank. Using on-device screen classifier.")
             screenCache.put(cacheKey, quick)
             return@withContext quick
@@ -382,7 +382,7 @@ object GeminiContentClassifier {
             ""
         }
 
-        if (apiKey.isBlank() || apiKey == "MY_GEMINI_API_KEY") {
+        if (apiKey.isBlank() || apiKey == "MY_GEMINI_API_KEY" || apiKey == "<redacted>") {
             Log.d(TAG, "Gemini API key is placeholder or blank. Using on-device classifier.")
             classificationCache.put(cacheKey, quick)
             return@withContext quick
