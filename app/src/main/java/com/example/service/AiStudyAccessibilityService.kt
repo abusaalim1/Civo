@@ -414,6 +414,9 @@ class AiStudyAccessibilityService : AccessibilityService() {
                                 val result = OnDeviceStudyClassifier.evaluateContent(candidate)
                                 if (result.isCasual) {
                                     Log.w(TAG, "[Non-Study Message] App: $pkg, Message: '$candidate', Reason: ${result.reason}")
+                                    // v1.1.8: feed confident verdict into the sticky cache so
+                                    // low-signal follow-ups ("ok", "lol", ...) inherit it.
+                                    StudyGuardKnowledge.noteExternalChatVerdict(pkg, StudyGuardKnowledge.Verdict.NON_STUDY)
                                     AiStudyGuardManager.onNonStudyDetected(
                                         context = applicationContext,
                                         packageName = pkg,
@@ -421,35 +424,63 @@ class AiStudyAccessibilityService : AccessibilityService() {
                                         reason = result.reason
                                     )
                                 } else if (result.reason.contains("benefit of doubt")) {
-                                    // v1.1.6: on-device could not decide (no keyword match) — ask Gemini AI
-                                    // as tie-breaker so natural Hinglish/casual chat is still judged.
-                                    // Throttled: at most one Gemini chat check per package per 8s.
-                                    val nowGem = System.currentTimeMillis()
-                                    val lastGem = lastAiChatGeminiMs[pkg] ?: 0L
-                                    if (nowGem - lastGem >= 8000L && candidate.length >= 4) {
-                                        lastAiChatGeminiMs[pkg] = nowGem
-                                        val msgCopy = candidate
-                                        serviceScope.launch {
-                                            try {
-                                                val gv = GeminiContentClassifier.evaluateChatMessageWithGemini(
-                                                    message = msgCopy,
-                                                    appName = pkg
-                                                )
-                                                if (!gv.isStudyAllowed || gv.isAdult) {
-                                                    Log.w(TAG, "[Gemini Chat Guard] Non-study message in $pkg: '$msgCopy' -> ${gv.reason}")
-                                                    AiStudyGuardManager.onNonStudyDetected(
-                                                        context = applicationContext,
-                                                        packageName = pkg,
-                                                        messageText = msgCopy,
-                                                        reason = gv.reason
-                                                    )
+                                    // v1.1.8: curated offline knowledge BEFORE the Gemini
+                                    // tie-breaker — instant, no network. Confident verdicts
+                                    // act directly; UNCERTAIN keeps the existing flow.
+                                    when (StudyGuardKnowledge.scoreChatMessage(candidate, pkg)) {
+                                        StudyGuardKnowledge.Verdict.NON_STUDY -> {
+                                            Log.w(TAG, "[StudyGuardKnowledge] Non-study message in $pkg: '$candidate'")
+                                            AiStudyGuardManager.onNonStudyDetected(
+                                                context = applicationContext,
+                                                packageName = pkg,
+                                                messageText = candidate,
+                                                reason = "Non-study content detected by Study Guard"
+                                            )
+                                        }
+                                        StudyGuardKnowledge.Verdict.STUDY -> {
+                                            AiStudyGuardManager.onStudyActivityDetected(
+                                                context = applicationContext,
+                                                packageName = pkg,
+                                                messageText = candidate
+                                            )
+                                        }
+                                        StudyGuardKnowledge.Verdict.UNCERTAIN -> {
+                                            // v1.1.6: on-device could not decide (no keyword match) — ask Gemini AI
+                                            // as tie-breaker so natural Hinglish/casual chat is still judged.
+                                            // Throttled: at most one Gemini chat check per package per 8s.
+                                            val nowGem = System.currentTimeMillis()
+                                            val lastGem = lastAiChatGeminiMs[pkg] ?: 0L
+                                            if (nowGem - lastGem >= 8000L && candidate.length >= 4) {
+                                                lastAiChatGeminiMs[pkg] = nowGem
+                                                val msgCopy = candidate
+                                                serviceScope.launch {
+                                                    try {
+                                                        val gv = GeminiContentClassifier.evaluateChatMessageWithGemini(
+                                                            message = msgCopy,
+                                                            appName = pkg
+                                                        )
+                                                        if (!gv.isStudyAllowed || gv.isAdult) {
+                                                            Log.w(TAG, "[Gemini Chat Guard] Non-study message in $pkg: '$msgCopy' -> ${gv.reason}")
+                                                            StudyGuardKnowledge.noteExternalChatVerdict(pkg, StudyGuardKnowledge.Verdict.NON_STUDY)
+                                                            AiStudyGuardManager.onNonStudyDetected(
+                                                                context = applicationContext,
+                                                                packageName = pkg,
+                                                                messageText = msgCopy,
+                                                                reason = gv.reason
+                                                            )
+                                                        } else {
+                                                            StudyGuardKnowledge.noteExternalChatVerdict(pkg, StudyGuardKnowledge.Verdict.STUDY)
+                                                        }
+                                                    } catch (t: Throwable) {
+                                                        Log.w(TAG, "Gemini chat evaluation failed: ${t.message}")
+                                                    }
                                                 }
-                                            } catch (t: Throwable) {
-                                                Log.w(TAG, "Gemini chat evaluation failed: ${t.message}")
                                             }
                                         }
                                     }
                                 } else {
+                                    // v1.1.8: confident study verdict feeds the sticky cache.
+                                    StudyGuardKnowledge.noteExternalChatVerdict(pkg, StudyGuardKnowledge.Verdict.STUDY)
                                     AiStudyGuardManager.onStudyActivityDetected(
                                         context = applicationContext,
                                         packageName = pkg,
@@ -662,6 +693,40 @@ class AiStudyAccessibilityService : AccessibilityService() {
      * processing this event; false when a background Gemini check was launched.
      */
     private fun processYouTubeVideoTitle(title: String, channel: String?, metadata: String?): Boolean {
+        // v1.1.8: curated offline knowledge first — instant (<1ms), zero network.
+        // Confident verdicts are used directly; UNCERTAIN falls through to the
+        // existing quickEvaluate -> Gemini flow unchanged.
+        when (StudyGuardKnowledge.scoreVideo(title, channel)) {
+            StudyGuardKnowledge.Verdict.STUDY -> {
+                Log.d(TAG, "[StudyGuardKnowledge] Study video allowed: '$title' ($channel)")
+                return false
+            }
+            StudyGuardKnowledge.Verdict.NON_STUDY -> {
+                val now = System.currentTimeMillis()
+                if (now - lastYouTubeAiInterceptTimeMs > 1500L) {
+                    lastYouTubeAiInterceptTimeMs = now
+                    Log.w(TAG, "[StudyGuardKnowledge] Blocking non-study video: '$title' ($channel)")
+                    YouTubeStudyGuardManager.recordBlockedVideo(
+                        context = applicationContext,
+                        title = title,
+                        channel = channel,
+                        reason = "Non-study content detected: \"$title\""
+                    )
+                    forceStopMediaAndDismissToFocivo(
+                        context = applicationContext,
+                        blockedPackage = "com.google.android.youtube.entertainment",
+                        appName = "YouTube AI Guard",
+                        reason = "🔒 Non-Study Entertainment Blocked:\n\"$title\"\n\nOnly educational lectures, exam prep, school/college subjects & coding tutorials are allowed!",
+                        isGeminiIntercept = true
+                    )
+                }
+                return true
+            }
+            StudyGuardKnowledge.Verdict.UNCERTAIN -> {
+                // fall through to existing flow below
+            }
+        }
+
         val quickVerdict = GeminiContentClassifier.quickEvaluate(
             title = title,
             channel = channel,
