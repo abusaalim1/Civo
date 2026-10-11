@@ -425,7 +425,7 @@ fun FocusScreen(
                                 onSkipBreak()
                             },
                             onMascotClick = {},
-                            mascotPose = if (isRunning) MascotPose.STUDYING else MascotPose.IDLE
+                            mascotPose = if (isRunning) MascotPose.STUDYING else MascotPose.STUDY_POSE
                         )
                     }
                 }

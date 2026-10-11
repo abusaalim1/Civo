@@ -44,6 +44,7 @@ class AiStudyAccessibilityService : AccessibilityService() {
         private var lastPunishmentInterceptTimeMs: Long = 0L
         private var lastPunishedPackageIntercepted: String? = null
         private val lastEvaluatedScreenSignatures = LinkedHashMap<String, Long>()
+        private val lastAiChatScanMs = mutableMapOf<String, Long>()
     }
 
     override fun onServiceConnected() {
@@ -407,7 +408,17 @@ class AiStudyAccessibilityService : AccessibilityService() {
                     pkg.contains("perplexity", ignoreCase = true) ||
                     pkg.contains("copilot", ignoreCase = true)
 
-            if (isAiApp && isStudyPeriod && (eventType == AccessibilityEvent.TYPE_VIEW_TEXT_CHANGED || isWindowStateChanged) && AiStudyGuardManager.isAiGuardEnabled(applicationContext)) {
+            if (isAiApp && isStudyPeriod && (eventType == AccessibilityEvent.TYPE_VIEW_TEXT_CHANGED
+                        || eventType == AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED
+                        || isWindowStateChanged) && AiStudyGuardManager.isAiGuardEnabled(applicationContext)) {
+                // Throttle full tree-walks: at most one scan per package per 1.5s
+                val lastScan = lastAiChatScanMs[pkg] ?: 0L
+                if (nowTime - lastScan < 1500L) return
+                lastAiChatScanMs[pkg] = nowTime
+                if (lastAiChatScanMs.size > 40) {
+                    val cutoff = nowTime - 120_000L
+                    lastAiChatScanMs.entries.removeIf { it.value < cutoff }
+                }
                 AiStudyGuardManager.updateGuardStatusNotification(applicationContext)
                 val rootNode = rootInActiveWindow
                 if (rootNode != null) {

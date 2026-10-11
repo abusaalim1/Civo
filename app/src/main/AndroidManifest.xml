@@ -106,6 +106,17 @@
                 android:value="Focus shield app and distraction blocker during active focus sessions" />
         </service>
 
+        <service
+            android:name=".service.FocusTimerService"
+            android:label="@string/app_name"
+            android:enabled="true"
+            android:exported="false"
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="Focus timer keeping the study session clock running in background" />
+        </service>
+
         <receiver
             android:name=".service.ScheduledBlockReceiver$BootReceiver"
             android:enabled="true"

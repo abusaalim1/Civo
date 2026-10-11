@@ -200,6 +200,7 @@ fun FocuslyApp(viewModel: FocuslyViewModel) {
 
     // Focus Shield / App Blocker states
     val isShieldHubOpen by viewModel.isShieldHubOpen.collectAsState()
+    val isAiGuardHubOpen by viewModel.isAiGuardHubOpen.collectAsState()
     val isShieldOverlayVisible by viewModel.isShieldOverlayVisible.collectAsState()
     val isDeepFocusEnabled by viewModel.isDeepFocusEnabled.collectAsState()
     val isDeepFocusSessionActive by viewModel.isDeepFocusSessionActive.collectAsState()
@@ -240,6 +241,7 @@ fun FocuslyApp(viewModel: FocuslyViewModel) {
     val currentUser by viewModel.currentUser.collectAsState()
     val availableAppUpdate by viewModel.availableAppUpdate.collectAsState()
     val manualUpdateCheckResult by viewModel.manualUpdateCheckResult.collectAsState()
+    val isCheckingForUpdates by viewModel.isCheckingForUpdates.collectAsState()
     val isAuthChecking by viewModel.isAuthChecking.collectAsState()
     val isAuthLoading by viewModel.isAuthLoading.collectAsState()
     val isProfileLoading by viewModel.isProfileLoading.collectAsState()
@@ -407,7 +409,8 @@ fun FocuslyApp(viewModel: FocuslyViewModel) {
                                 selectedTab = selectedTab,
                                 onTabSelected = { tab ->
                                     selectedTab = tab
-                                }
+                                },
+                                hapticsEnabled = userPreferences?.hapticsEnabled ?: true
                             )
                         }
                     }
@@ -439,6 +442,12 @@ fun FocuslyApp(viewModel: FocuslyViewModel) {
                                         },
                                         onOpenAlarmStudio = { isAlarmHubOpen = true },
                                         onOpenShieldHub = { viewModel.openShieldHub() },
+                                        onOpenAiGuardHub = { viewModel.openAiGuardHub() },
+                                        onUpdateHaptics = { viewModel.updateHaptics(it) },
+                                        onUpdateChimes = { viewModel.updateChimes(it) },
+                                        onCheckForUpdates = { viewModel.checkForAppUpdates(context, isManual = true) },
+                                        isCheckingForUpdates = isCheckingForUpdates,
+                                        manualUpdateMessage = manualUpdateCheckResult,
                                         onLogout = {
                                             showSignOutConfirmationDialog = true
                                         }
@@ -657,6 +666,13 @@ fun FocuslyApp(viewModel: FocuslyViewModel) {
                         onDeleteSchedule = { viewModel.deleteScheduledBlock(it) },
                         onOpenAppLimits = { isAppLimitsOpen = true },
                         onDismiss = { viewModel.closeShieldHub() }
+                    )
+                }
+
+                // AI Study Guard hub (all guard options + punishment history)
+                if (isAiGuardHubOpen) {
+                    com.example.ui.components.AiStudyGuardHubSheet(
+                        onDismiss = { viewModel.closeAiGuardHub() }
                     )
                 }
 

@@ -53,7 +53,11 @@ enum class MascotPose {
     EMPTY_STATE,
     ACHIEVEMENT,
     GRATEFUL,
-    CONCERNED
+    CONCERNED,
+    GUARD_WARNING,
+    GUARD,
+    STUDY_POSE,
+    CELEBRATE_NEW
 }
 
 /**
@@ -99,6 +103,10 @@ fun RegainMascotView(
         MascotPose.CONCERNED -> R.drawable.mascot_concerned
         MascotPose.STOP_SIGN, MascotPose.ANGRY -> R.drawable.mascot_blocked
         MascotPose.STUDYING -> R.drawable.mascot_studying
+        MascotPose.GUARD_WARNING -> R.drawable.mascot_warning
+        MascotPose.GUARD -> R.drawable.mascot_guard
+        MascotPose.STUDY_POSE -> R.drawable.mascot_study
+        MascotPose.CELEBRATE_NEW -> R.drawable.mascot_celebrate
         MascotPose.IDLE -> R.drawable.mascot_base
     }
 

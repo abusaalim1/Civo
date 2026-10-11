@@ -1956,6 +1956,25 @@ class FocuslyViewModel(application: Application) : AndroidViewModel(application)
             com.example.widget.FocivoWidgetHelper.updateAllWidgets(app)
         } catch (_: Exception) {}
 
+        // Start the background-safe focus timer foreground service so the session
+        // clock keeps running (with an ongoing notification) even if the app is
+        // swiped away or the process is killed. End-time based: survives restarts.
+        try {
+            val endTimeForService = System.currentTimeMillis() + (_remainingSeconds.value * 1000L)
+            val timerIntent = Intent(app, com.example.service.FocusTimerService::class.java).apply {
+                action = com.example.service.FocusTimerService.ACTION_START_TIMER
+                putExtra(com.example.service.FocusTimerService.EXTRA_END_TIME_MS, endTimeForService)
+                putExtra(com.example.service.FocusTimerService.EXTRA_TARGET_SECONDS, _targetSeconds.value)
+                putExtra(com.example.service.FocusTimerService.EXTRA_TASK_TITLE, _currentTaskTitle.value)
+                putExtra(com.example.service.FocusTimerService.EXTRA_MODE, _currentMode.value)
+            }
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                app.startForegroundService(timerIntent)
+            } else {
+                app.startService(timerIntent)
+            }
+        } catch (_: Exception) {}
+
         // 2. Evaluate permissions and auto-activate Focus Shield & AI Study Guard
         val hasUsage = com.example.ui.components.FocusShieldPermissions.hasUsageStatsPermission(app)
         val hasAccessibility = com.example.util.AiStudyGuardManager.isAccessibilityPermissionGranted(app)
@@ -2126,6 +2145,14 @@ class FocuslyViewModel(application: Application) : AndroidViewModel(application)
             app.stopService(serviceIntent)
         } catch (_: Exception) {}
 
+        // Stop the background timer service too — session fully ended
+        try {
+            val timerStopIntent = Intent(app, com.example.service.FocusTimerService::class.java).apply {
+                action = com.example.service.FocusTimerService.ACTION_STOP_TIMER
+            }
+            app.startService(timerStopIntent)
+        } catch (_: Exception) {}
+
         try {
             val nm = app.getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager
             nm?.cancel(7001)
@@ -2148,6 +2175,25 @@ class FocuslyViewModel(application: Application) : AndroidViewModel(application)
     fun addFiveMinutes() {
         _remainingSeconds.value += 300
         _targetSeconds.value += 300
+        // Keep the background timer service's end time in sync
+        try {
+            val app = getApplication<Application>()
+            val endTime = System.currentTimeMillis() + (_remainingSeconds.value * 1000L)
+            val prefs = app.getSharedPreferences("focusly_local_data", Context.MODE_PRIVATE)
+            prefs.edit().putLong("manual_timer_end_time_ms", endTime).apply()
+            val timerIntent = Intent(app, com.example.service.FocusTimerService::class.java).apply {
+                action = com.example.service.FocusTimerService.ACTION_START_TIMER
+                putExtra(com.example.service.FocusTimerService.EXTRA_END_TIME_MS, endTime)
+                putExtra(com.example.service.FocusTimerService.EXTRA_TARGET_SECONDS, _targetSeconds.value)
+                putExtra(com.example.service.FocusTimerService.EXTRA_TASK_TITLE, _currentTaskTitle.value)
+                putExtra(com.example.service.FocusTimerService.EXTRA_MODE, _currentMode.value)
+            }
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                app.startForegroundService(timerIntent)
+            } else {
+                app.startService(timerIntent)
+            }
+        } catch (_: Exception) {}
     }
 
     fun finishSessionEarly() {
@@ -2215,7 +2261,9 @@ class FocuslyViewModel(application: Application) : AndroidViewModel(application)
 
     private fun onTimerCompleted() {
         pauseTimer()
-        audioEngine.playCompletionChime()
+        if (userPreferences.value?.notificationsEnabled == true) {
+            audioEngine.playCompletionChime()
+        }
 
         if (userPreferences.value?.isAppBlockerEnabled == true) {
             val app = getApplication<Application>()
@@ -2225,7 +2273,9 @@ class FocuslyViewModel(application: Application) : AndroidViewModel(application)
             try {
                 app.startService(serviceIntent)
             } catch (_: Exception) {}
-            audioEngine.playShieldUnlockChime()
+            if (userPreferences.value?.notificationsEnabled == true) {
+                audioEngine.playShieldUnlockChime()
+            }
         }
 
         val durationSpent = _targetSeconds.value - _remainingSeconds.value
@@ -2358,6 +2408,18 @@ class FocuslyViewModel(application: Application) : AndroidViewModel(application)
 
     fun closeShieldHub() {
         _isShieldHubOpen.value = false
+    }
+
+    // AI Study Guard hub
+    private val _isAiGuardHubOpen = MutableStateFlow(false)
+    val isAiGuardHubOpen: StateFlow<Boolean> = _isAiGuardHubOpen.asStateFlow()
+
+    fun openAiGuardHub() {
+        _isAiGuardHubOpen.value = true
+    }
+
+    fun closeAiGuardHub() {
+        _isAiGuardHubOpen.value = false
     }
 
     fun dismissShieldOverlay() {
@@ -2647,7 +2709,9 @@ class FocuslyViewModel(application: Application) : AndroidViewModel(application)
             }
             // Strict lock: Automatically unlock ONLY when reaching 0
             internalFinishShield()
-            audioEngine.playShieldUnlockChime()
+            if (userPreferences.value?.notificationsEnabled == true) {
+                audioEngine.playShieldUnlockChime()
+            }
         }
     }
 
@@ -2862,6 +2926,20 @@ class FocuslyViewModel(application: Application) : AndroidViewModel(application)
         viewModelScope.launch {
             val prefs = userPreferences.value ?: UserPreferencesEntity()
             repository.savePreferences(prefs.copy(dailyGoalMinutes = minutes))
+        }
+    }
+
+    fun updateHaptics(enabled: Boolean) {
+        viewModelScope.launch {
+            val prefs = userPreferences.value ?: UserPreferencesEntity()
+            repository.savePreferences(prefs.copy(hapticsEnabled = enabled))
+        }
+    }
+
+    fun updateChimes(enabled: Boolean) {
+        viewModelScope.launch {
+            val prefs = userPreferences.value ?: UserPreferencesEntity()
+            repository.savePreferences(prefs.copy(notificationsEnabled = enabled))
         }
     }
 

@@ -273,6 +273,17 @@ fun FocusShieldHubSheet(
                 com.example.util.ShortsLockManager.init(context)
                 com.example.util.YouTubeStudyGuardManager.init(context)
                 com.example.util.DeepFocusManager.init(context)
+                // Complete a queued enable-action once the user returns with accessibility granted
+                if (hasAccessibilityPermission) {
+                    val queued = pendingAction
+                    if (queued != null) {
+                        pendingAction = null
+                        queued()
+                        isAiGuardEnabled = AiStudyGuardManager.isAiGuardEnabled(context)
+                    }
+                } else {
+                    pendingAction = null
+                }
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
@@ -848,6 +859,12 @@ fun FocusShieldHubSheet(
                                 checked = isAiGuardEnabled,
                                 onCheckedChange = { isEnabled ->
                                     if (isEnabled && !hasAccessibilityPermission) {
+                                        // Queue the enable intent: after the user grants accessibility
+                                        // and returns, the ON_RESUME observer applies it automatically
+                                        pendingAction = {
+                                            AiStudyGuardManager.setAiGuardEnabled(context, true)
+                                            isAiGuardEnabled = true
+                                        }
                                         showAiAccessibilityOptInDialog = true
                                     } else {
                                         AiStudyGuardManager.setAiGuardEnabled(context, isEnabled)

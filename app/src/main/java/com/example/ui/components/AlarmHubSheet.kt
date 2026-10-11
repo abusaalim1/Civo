@@ -492,6 +492,31 @@ fun AlarmHubSheet(
                                 )
                             )
 
+                            // Vibrate toggle
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Text(
+                                    text = "Vibrate",
+                                    style = MaterialTheme.typography.bodyMedium.copy(
+                                        color = textPrimary,
+                                        fontWeight = FontWeight.Medium
+                                    )
+                                )
+                                Switch(
+                                    checked = vibrateEnabled,
+                                    onCheckedChange = { vibrateEnabled = it },
+                                    colors = SwitchDefaults.colors(
+                                        checkedThumbColor = NearBlack,
+                                        checkedTrackColor = limeAccent,
+                                        uncheckedThumbColor = textMuted,
+                                        uncheckedTrackColor = if (isDark) Color(0x30FFFFFF) else Color(0x18000000)
+                                    )
+                                )
+                            }
+
                             // Save Button
                             GlassButton(
                                 text = "Save Alarm",

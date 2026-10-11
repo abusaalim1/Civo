@@ -49,6 +49,7 @@ import com.example.ui.components.GlassButton
 import com.example.ui.components.MascotPose
 import com.example.ui.components.RegainMascotView
 import com.example.ui.theme.LavenderSoft
+import com.example.ui.theme.BalooBrandFontFamily
 import com.example.ui.theme.NearBlack
 import com.example.ui.theme.RegainLimeDeepText
 import com.example.ui.theme.RegainLimePrimary
@@ -141,9 +142,9 @@ fun SessionCompleteScreen(
                     }
                 }
 
-                // Center Celebrating Mascot
+                // Center Celebrating Mascot (new celebrate art)
                 RegainMascotView(
-                    pose = MascotPose.CELEBRATING,
+                    pose = MascotPose.CELEBRATE_NEW,
                     width = 180.dp,
                     height = 240.dp
                 )
@@ -154,6 +155,7 @@ fun SessionCompleteScreen(
             Text(
                 text = "Well done.",
                 style = MaterialTheme.typography.displayMedium.copy(
+                    fontFamily = BalooBrandFontFamily,
                     fontWeight = FontWeight.Bold,
                     fontSize = 36.sp,
                     color = if (isDark) Color(0xFFF0F4ED) else NearBlack

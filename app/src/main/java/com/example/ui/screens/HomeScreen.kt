@@ -73,6 +73,7 @@ import com.example.ui.components.SegmentedProgressBar
 import com.example.ui.components.appleCard
 import com.example.ui.components.pressFeedback
 import com.example.ui.theme.AppleLinearFontFamily
+import com.example.ui.theme.BalooBrandFontFamily
 import com.example.ui.theme.MutedBorderLight
 import com.example.ui.theme.NearBlack
 import com.example.ui.theme.PoppinsFontFamily
@@ -367,10 +368,10 @@ fun HomeScreen(
                             Text(
                                 text = displayGreeting,
                                 style = MaterialTheme.typography.headlineMedium.copy(
-                                    fontFamily = AppleLinearFontFamily,
+                                    fontFamily = BalooBrandFontFamily,
                                     fontWeight = FontWeight.Bold,
                                     color = headerTitleColor,
-                                    fontSize = 24.sp
+                                    fontSize = 26.sp
                                 )
                             )
                         }

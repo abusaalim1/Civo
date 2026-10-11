@@ -76,7 +76,8 @@ enum class NavTab(
 fun FloatingNavigation(
     selectedTab: NavTab,
     onTabSelected: (NavTab) -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    hapticsEnabled: Boolean = true
 ) {
     val view = LocalView.current
     val isDark = isAppInDarkTheme()
@@ -148,7 +149,9 @@ fun FloatingNavigation(
                                 interactionSource = interactionSource,
                                 indication = null
                             ) {
-                                view.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
+                                if (hapticsEnabled) {
+                                    view.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
+                                }
                                 onTabSelected(tab)
                             }
                             .padding(

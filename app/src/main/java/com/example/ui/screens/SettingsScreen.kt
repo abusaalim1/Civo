@@ -29,6 +29,7 @@ import androidx.compose.material.icons.filled.CloudDone
 import androidx.compose.material.icons.filled.CloudSync
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Notifications
+import androidx.compose.material.icons.filled.Shield
 import androidx.compose.material.icons.filled.PrivacyTip
 import androidx.compose.material.icons.filled.RestartAlt
 import androidx.compose.material.icons.filled.Schedule
@@ -82,6 +83,9 @@ fun SettingsScreen(
     onReplayOnboarding: () -> Unit,
     onOpenAlarmStudio: () -> Unit = {},
     onOpenShieldHub: () -> Unit = {},
+    onOpenAiGuardHub: () -> Unit = {},
+    onUpdateHaptics: (Boolean) -> Unit = {},
+    onUpdateChimes: (Boolean) -> Unit = {},
     onLogout: () -> Unit = {},
     onCheckForUpdates: () -> Unit = {},
     isCheckingForUpdates: Boolean = false,
@@ -97,6 +101,18 @@ fun SettingsScreen(
     var hasDndPermission by remember { mutableStateOf(StudyNotificationBlockerManager.hasDndPermission(context)) }
     var showAiGuardDisclosureDialog by remember { mutableStateOf(false) }
     var showPrivacyPolicySheet by remember { mutableStateOf(false) }
+
+    // Refresh permission states when returning from system settings
+    val settingsLifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
+    androidx.compose.runtime.DisposableEffect(settingsLifecycleOwner) {
+        val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
+            if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME) {
+                hasDndPermission = StudyNotificationBlockerManager.hasDndPermission(context)
+            }
+        }
+        settingsLifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { settingsLifecycleOwner.lifecycle.removeObserver(observer) }
+    }
 
     val themeOptions = listOf("System", "Light", "Dark")
     val currentThemeIndex = when (userPreferences?.themeMode) {
@@ -294,7 +310,7 @@ fun SettingsScreen(
 
                         Switch(
                             checked = hapticsEnabled,
-                            onCheckedChange = { hapticsEnabled = it },
+                            onCheckedChange = { hapticsEnabled = it; onUpdateHaptics(it) },
                             colors = SwitchDefaults.colors(
                                 checkedThumbColor = Color.White,
                                 checkedTrackColor = RegainLimePrimary
@@ -328,7 +344,7 @@ fun SettingsScreen(
 
                         Switch(
                             checked = notificationsEnabled,
-                            onCheckedChange = { notificationsEnabled = it },
+                            onCheckedChange = { notificationsEnabled = it; onUpdateChimes(it) },
                             colors = SwitchDefaults.colors(
                                 checkedThumbColor = Color.White,
                                 checkedTrackColor = RegainLimePrimary
@@ -549,6 +565,68 @@ fun SettingsScreen(
                             Spacer(modifier = Modifier.height(2.dp))
                             Text(
                                 text = if (isShieldEnabled) "Armed · Distractions Blocked During Study" else if (!hasShieldPerms) "Permissions Needed · Tap to setup shield" else "Configured · Tap to manage apps & timer",
+                                style = MaterialTheme.typography.bodySmall.copy(
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    fontSize = 12.sp
+                                )
+                            )
+                        }
+                    }
+
+                    Icon(
+                        imageVector = Icons.Default.ChevronRight,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
+            }
+        }
+
+        // AI Study Guard Hub Link
+        item {
+            GlassCard(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { onOpenAiGuardHub() },
+                shape = RoundedCornerShape(22.dp)
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(18.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Box(
+                            modifier = Modifier
+                                .size(40.dp)
+                                .clip(CircleShape)
+                                .background(RegainLimePrimary.copy(alpha = 0.15f)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Shield,
+                                contentDescription = null,
+                                tint = RegainLimePrimary,
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
+
+                        Spacer(modifier = Modifier.width(14.dp))
+
+                        Column {
+                            Text(
+                                text = "AI Study Guard",
+                                style = MaterialTheme.typography.titleMedium.copy(
+                                    fontSize = 15.sp,
+                                    fontWeight = FontWeight.Medium
+                                )
+                            )
+                            Spacer(modifier = Modifier.height(2.dp))
+                            Text(
+                                text = "Filters, locks, warnings & history",
                                 style = MaterialTheme.typography.bodySmall.copy(
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     fontSize = 12.sp

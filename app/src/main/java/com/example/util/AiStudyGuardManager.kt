@@ -323,8 +323,9 @@ object AiStudyGuardManager {
                 packageName = packageName,
                 appName = appName,
                 durationSec = GRACE_PERIOD_SECONDS,
-                reason = "⚠️ Stage 1 Academic Warning: $reason\nPlease keep questions study & exam-related to avoid a 3-hour lock!",
-                isPunishment = false
+                reason = "⚠️ Study Warning: Non-study content detected in $appName.\n\nNon-study content mat dekho — padhai pe focus karo! 📚\n\nKeep your questions study & exam-related, warna $appName 3 ghante ke liye lock ho jayega.",
+                isPunishment = false,
+                guardVariant = com.example.ui.screens.BlockedAppLockActivity.GUARD_VARIANT_WARNING
             )
             context.startActivity(popupIntent)
         } catch (_: Exception) {}

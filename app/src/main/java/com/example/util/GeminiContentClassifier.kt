@@ -24,7 +24,7 @@ import java.util.concurrent.TimeUnit
 object GeminiContentClassifier {
 
     private const val TAG = "GeminiClassifier"
-    private const val MODEL_NAME = "gemini-3.5-flash"
+    private const val MODEL_NAME = "gemini-2.0-flash"
     private const val GEMINI_ENDPOINT = "https://generativelanguage.googleapis.com/v1beta/models/$MODEL_NAME:generateContent"
 
     data class ContentVerdict(

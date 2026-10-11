@@ -21,6 +21,7 @@ class BlockedAppLockActivity : ComponentActivity() {
     private val initialSecondsState = mutableIntStateOf(0)
     private val reasonState = mutableStateOf<String?>(null)
     private val isPunishmentState = mutableStateOf(false)
+    private val guardVariantState = mutableStateOf<String?>(null)
 
     companion object {
         const val EXTRA_BLOCKED_PACKAGE = "extra_blocked_package"
@@ -28,6 +29,8 @@ class BlockedAppLockActivity : ComponentActivity() {
         const val EXTRA_DURATION_SECONDS = "extra_duration_seconds"
         const val EXTRA_REASON = "extra_reason"
         const val EXTRA_IS_PUNISHMENT = "extra_is_punishment"
+        const val EXTRA_GUARD_VARIANT = "extra_guard_variant"
+        const val GUARD_VARIANT_WARNING = "warning"
 
         @Volatile
         var isCurrentlyShowing: Boolean = false
@@ -38,7 +41,8 @@ class BlockedAppLockActivity : ComponentActivity() {
             appName: String,
             durationSec: Int = 0,
             reason: String? = null,
-            isPunishment: Boolean = false
+            isPunishment: Boolean = false,
+            guardVariant: String? = null
         ): Intent {
             return Intent(context, BlockedAppLockActivity::class.java).apply {
                 putExtra(EXTRA_BLOCKED_PACKAGE, packageName)
@@ -46,6 +50,7 @@ class BlockedAppLockActivity : ComponentActivity() {
                 putExtra(EXTRA_DURATION_SECONDS, durationSec)
                 putExtra(EXTRA_REASON, reason)
                 putExtra(EXTRA_IS_PUNISHMENT, isPunishment)
+                putExtra(EXTRA_GUARD_VARIANT, guardVariant)
                 flags = Intent.FLAG_ACTIVITY_NEW_TASK or
                         Intent.FLAG_ACTIVITY_CLEAR_TOP or
                         Intent.FLAG_ACTIVITY_SINGLE_TOP or
@@ -67,12 +72,18 @@ class BlockedAppLockActivity : ComponentActivity() {
 
         setContent {
             FocuslyTheme {
+                val mascotRes = when {
+                    guardVariantState.value == GUARD_VARIANT_WARNING -> com.example.R.drawable.mascot_warning
+                    isPunishmentState.value -> com.example.R.drawable.mascot_guard
+                    else -> com.example.R.drawable.mascot_blocked
+                }
                 BlockedAppOverlay(
                     appName = appNameState.value,
                     blockedPackage = blockedPackageState.value,
                     initialDurationSec = initialSecondsState.intValue,
                     reason = reasonState.value,
                     isPunishment = isPunishmentState.value,
+                    mascotRes = mascotRes,
                     onExitApp = {
                         exitToHomeScreen()
                     },
@@ -130,6 +141,7 @@ class BlockedAppLockActivity : ComponentActivity() {
         initialSecondsState.intValue = sec
         reasonState.value = rsn
         isPunishmentState.value = punishment
+        guardVariantState.value = intent.getStringExtra(EXTRA_GUARD_VARIANT)
     }
 
     private fun exitToHomeScreen() {

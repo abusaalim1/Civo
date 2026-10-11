@@ -78,6 +78,7 @@ fun BlockedAppOverlay(
     initialDurationSec: Int = 0,
     reason: String? = null,
     isPunishment: Boolean = false,
+    mascotRes: Int = R.drawable.mascot_blocked,
     onExitApp: () -> Unit,
     onOpenFocusly: () -> Unit
 ) {
@@ -197,8 +198,8 @@ fun BlockedAppOverlay(
 
                     // Mascot Image (Clear, well-proportioned size)
                     Image(
-                        painter = painterResource(id = R.drawable.mascot_blocked),
-                        contentDescription = "Focus Mascot Locked",
+                        painter = painterResource(id = mascotRes),
+                        contentDescription = "Focus Mascot",
                         modifier = Modifier
                             .size(136.dp)
                             .scale(pulseScale),

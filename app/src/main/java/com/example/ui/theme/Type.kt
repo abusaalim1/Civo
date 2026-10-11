@@ -19,6 +19,17 @@ val PoppinsFontFamily = FontFamily(
 val InterFontFamily = PoppinsFontFamily
 val AppleLinearFontFamily = PoppinsFontFamily
 
+/**
+ * Baloo 2 variable display font — used ONLY for branding surfaces:
+ * app name/logo text, main screen headlines, AI Study Guard header.
+ * Body text keeps Poppins for readability.
+ */
+val BalooBrandFontFamily = FontFamily(
+    Font(R.font.baloo2_variable, FontWeight.SemiBold),
+    Font(R.font.baloo2_variable, FontWeight.Bold),
+    Font(R.font.baloo2_variable, FontWeight.ExtraBold)
+)
+
 // Apple-inspired Material 3 Typography with crisp kerning, optical metrics & subtle tracking
 val Typography = Typography(
     displayLarge = TextStyle(
