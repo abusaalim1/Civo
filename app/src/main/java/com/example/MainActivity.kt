@@ -1,5 +1,6 @@
 package com.example
 
+import android.content.Context
 import android.content.Intent
 import android.os.Bundle
 import androidx.activity.ComponentActivity
@@ -33,6 +34,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.service.FocusShieldService
+import com.example.ui.components.GuardRetoggleDialog
 import com.example.ui.components.AlarmHubSheet
 import com.example.ui.components.AlarmRingingOverlay
 import com.example.ui.components.BlockShieldOverlay
@@ -93,6 +95,9 @@ class MainActivity : ComponentActivity() {
     override fun onResume() {
         super.onResume()
         activeViewModel?.syncShieldStateWithService()
+        // Restore a running timer's UI after process death (idempotent — no-op if
+        // the timer is already live in this process or no timer is persisted).
+        activeViewModel?.restoreTimerStateIfNeeded()
         com.example.service.ScheduledBlockScheduler.evaluateAndReschedule(this)
     }
 
@@ -236,6 +241,19 @@ fun FocuslyApp(viewModel: FocuslyViewModel) {
     val showMilestoneDonationPrompt by viewModel.showMilestoneDonationPrompt.collectAsState()
     val showSessionDonationPrompt by viewModel.showSessionDonationPrompt.collectAsState()
     val lastCompletedSessionForPrompt by viewModel.lastCompletedSessionForPrompt.collectAsState()
+
+    // One-time prompt after updates that changed the accessibility service config:
+    // Android caches the config at enable time, so the new AI Guard only works
+    // after the user toggles the service OFF and ON once.
+    val appContext = LocalContext.current
+    var showGuardRetoggle by remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) {
+        val prefs = appContext.getSharedPreferences("focusly_local_data", Context.MODE_PRIVATE)
+        val ackVc = prefs.getInt("guard_config_ack_vc", 0)
+        if (com.example.BuildConfig.VERSION_CODE > ackVc) {
+            showGuardRetoggle = true
+        }
+    }
 
     // Local Auth & Questionnaire states
     val currentUser by viewModel.currentUser.collectAsState()
@@ -522,7 +540,8 @@ fun FocuslyApp(viewModel: FocuslyViewModel) {
                                         onSelectAmbientSound = { sound -> viewModel.setAmbientSound(sound) },
                                         onLogDistraction = { type -> viewModel.logDistraction(type) },
                                         onUpdateTaskTitle = { viewModel.setCurrentTaskTitle(it) },
-                                        onOpenShieldHub = { viewModel.openShieldHub() }
+                                        onOpenShieldHub = { viewModel.openShieldHub() },
+                                        onOpenAiGuardHub = { viewModel.openAiGuardHub() }
                                     )
                                 }
                                 NavTab.LEADERBOARD.name -> {
@@ -673,6 +692,21 @@ fun FocuslyApp(viewModel: FocuslyViewModel) {
                 if (isAiGuardHubOpen) {
                     com.example.ui.components.AiStudyGuardHubSheet(
                         onDismiss = { viewModel.closeAiGuardHub() }
+                    )
+                }
+
+                // One-time accessibility re-toggle prompt after guard config updates
+                if (showGuardRetoggle) {
+                    GuardRetoggleDialog(
+                        onOpenSettings = {
+                            appContext.getSharedPreferences("focusly_local_data", Context.MODE_PRIVATE)
+                                .edit()
+                                .putInt("guard_config_ack_vc", com.example.BuildConfig.VERSION_CODE)
+                                .apply()
+                            showGuardRetoggle = false
+                            AiStudyGuardManager.openAccessibilitySettings(appContext)
+                        },
+                        onLater = { showGuardRetoggle = false }
                     )
                 }
 

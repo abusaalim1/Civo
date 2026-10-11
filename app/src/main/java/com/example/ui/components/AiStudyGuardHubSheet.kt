@@ -87,6 +87,7 @@ fun AiStudyGuardHubSheet(
 
     var isAiGuardEnabled by remember { mutableStateOf(AiStudyGuardManager.isAiGuardEnabled(context)) }
     var hasAccessibility by remember { mutableStateOf(AiStudyGuardManager.isAccessibilityPermissionGranted(context)) }
+    var isStudyActiveNow by remember { mutableStateOf(AiStudyGuardManager.isStudyPeriodActive(context)) }
     var showOptInDialog by remember { mutableStateOf(false) }
 
     val isShortsLockEnabled by ShortsLockManager.isShortsLockState.collectAsState()
@@ -101,6 +102,7 @@ fun AiStudyGuardHubSheet(
             if (event == Lifecycle.Event.ON_RESUME) {
                 hasAccessibility = AiStudyGuardManager.isAccessibilityPermissionGranted(context)
                 isAiGuardEnabled = AiStudyGuardManager.isAiGuardEnabled(context)
+                isStudyActiveNow = AiStudyGuardManager.isStudyPeriodActive(context)
                 ShortsLockManager.init(context)
                 YouTubeStudyGuardManager.init(context)
                 AiStudyGuardManager.loadLocalLogs(context)
@@ -208,6 +210,67 @@ fun AiStudyGuardHubSheet(
                                     color = textSecondary
                                 )
                             }
+                        }
+                    }
+                }
+
+                // Live guard status — glanceable diagnosis of why the guard may not fire
+                item {
+                    GuardSectionTitle("Guard Status", textPrimary)
+                    GuardCard {
+                        GuardStatusRow(
+                            label = "Accessibility service",
+                            stateText = if (hasAccessibility) "Connected" else "OFF",
+                            ok = hasAccessibility,
+                            textPrimary = textPrimary,
+                            textSecondary = textSecondary,
+                            accentLime = accentLime
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        GuardStatusRow(
+                            label = "Study period",
+                            stateText = if (isStudyActiveNow) "Active now" else "Inactive",
+                            ok = isStudyActiveNow,
+                            textPrimary = textPrimary,
+                            textSecondary = textSecondary,
+                            accentLime = accentLime
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        GuardStatusRow(
+                            label = "YouTube AI filter",
+                            stateText = if (isYouTubeFilterEnabled) "ON" else "OFF",
+                            ok = isYouTubeFilterEnabled,
+                            textPrimary = textPrimary,
+                            textSecondary = textSecondary,
+                            accentLime = accentLime
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        GuardStatusRow(
+                            label = "AI Guard master switch",
+                            stateText = if (isAiGuardEnabled) "ON" else "OFF",
+                            ok = isAiGuardEnabled,
+                            textPrimary = textPrimary,
+                            textSecondary = textSecondary,
+                            accentLime = accentLime
+                        )
+                        if (isAiGuardEnabled && !hasAccessibility) {
+                            Spacer(modifier = Modifier.height(10.dp))
+                            Text(
+                                text = "Accessibility OFF hai — Guard kaam nahi karega",
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Color(0xFFE05252)
+                            )
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                text = "Open settings",
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                color = accentLime,
+                                modifier = Modifier.clickable {
+                                    AiStudyGuardManager.openAccessibilitySettings(context)
+                                }
+                            )
                         }
                     }
                 }
@@ -367,6 +430,50 @@ fun AiStudyGuardHubSheet(
                     }
                 }
 
+                // Pipeline self-test — bypasses the classifier, runs the real
+                // warning -> 3-hour lock flow with a fake message
+                item {
+                    GuardSectionTitle("Test", textPrimary)
+                    GuardCard {
+                        Text(
+                            text = "Runs the REAL warning → 3-hour lock pipeline with a fake test message — classifier ki zaroorat nahi. AI Guard master switch ON hona chahiye.",
+                            fontSize = 12.5.sp,
+                            lineHeight = 17.sp,
+                            color = textSecondary
+                        )
+                        Spacer(modifier = Modifier.height(10.dp))
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(14.dp))
+                                .background(accentLime)
+                                .clickable {
+                                    AiStudyGuardManager.onNonStudyDetected(
+                                        context = context,
+                                        packageName = "com.test.guard",
+                                        messageText = "test: movie dekhega kya bhai?",
+                                        reason = "Manual pipeline test (Test Guard button)"
+                                    )
+                                }
+                                .padding(vertical = 12.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = "▶ Test Guard Pipeline",
+                                fontSize = 14.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Color.White
+                            )
+                        }
+                        Text(
+                            text = "1st tap → mascot warning. Warning ke baad dobara tap → test app pe 3-hour lock lag jayega.",
+                            fontSize = 11.5.sp,
+                            color = textSecondary,
+                            modifier = Modifier.padding(top = 8.dp)
+                        )
+                    }
+                }
+
                 // How it works
                 item {
                     GuardSectionTitle("How it works", textPrimary)
@@ -435,6 +542,41 @@ private fun GuardCard(
         Column(modifier = Modifier.padding(16.dp)) {
             content()
         }
+    }
+}
+
+@Composable
+private fun GuardStatusRow(
+    label: String,
+    stateText: String,
+    ok: Boolean,
+    textPrimary: Color,
+    textSecondary: Color,
+    accentLime: Color
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Box(
+            modifier = Modifier
+                .size(10.dp)
+                .clip(CircleShape)
+                .background(if (ok) accentLime else Color(0xFFFF8A65))
+        )
+        Spacer(modifier = Modifier.width(8.dp))
+        Text(
+            text = label,
+            fontSize = 13.sp,
+            color = textSecondary,
+            modifier = Modifier.weight(1f)
+        )
+        Text(
+            text = stateText,
+            fontSize = 13.sp,
+            fontWeight = FontWeight.SemiBold,
+            color = if (ok) textPrimary else Color(0xFFE05252)
+        )
     }
 }
 

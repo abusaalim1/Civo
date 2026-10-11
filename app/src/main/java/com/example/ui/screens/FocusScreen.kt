@@ -30,6 +30,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.ArrowForward
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.GraphicEq
@@ -119,6 +120,7 @@ fun FocusScreen(
     onLogDistraction: (type: String) -> Unit,
     onUpdateTaskTitle: (String) -> Unit,
     onOpenShieldHub: () -> Unit = {},
+    onOpenAiGuardHub: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val isDark = isAppInDarkTheme()
@@ -549,6 +551,72 @@ fun FocusScreen(
                                         fontSize = 14.sp,
                                         letterSpacing = 1.sp
                                     )
+                                )
+                            }
+                        }
+                    }
+                }
+
+                // 3b. AI Study Guard entry — one button to the consolidated guard hub
+                // (shown when idle; during a run the screen stays distraction-free)
+                if (!isRunning) {
+                    item {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(top = 8.dp)
+                                .clip(RoundedCornerShape(20.dp))
+                                .background(
+                                    if (isDark) Color(0x1A8CE000) else RegainLimeContainer.copy(alpha = 0.45f)
+                                )
+                                .border(1.dp, RegainLimePrimary.copy(alpha = 0.55f), RoundedCornerShape(20.dp))
+                                .clickable { onOpenAiGuardHub() }
+                                .padding(horizontal = 16.dp, vertical = 13.dp)
+                                .testTag("ai_guard_entry_card")
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(40.dp)
+                                        .clip(CircleShape)
+                                        .background(RegainLimePrimary),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Shield,
+                                        contentDescription = null,
+                                        tint = NearBlack,
+                                        modifier = Modifier.size(22.dp)
+                                    )
+                                }
+                                Spacer(modifier = Modifier.width(12.dp))
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        text = "AI Study Guard",
+                                        style = MaterialTheme.typography.titleSmall.copy(
+                                            fontFamily = PoppinsFontFamily,
+                                            color = textPrimary,
+                                            fontWeight = FontWeight.Bold,
+                                            fontSize = 14.sp
+                                        )
+                                    )
+                                    Text(
+                                        text = "YouTube + AI chat monitor · warnings · 3h lock",
+                                        style = MaterialTheme.typography.bodySmall.copy(
+                                            fontFamily = PoppinsFontFamily,
+                                            color = textSecondary,
+                                            fontSize = 11.sp
+                                        )
+                                    )
+                                }
+                                Icon(
+                                    imageVector = Icons.Default.ArrowForward,
+                                    contentDescription = "Open AI Study Guard",
+                                    tint = RegainLimeDeepText,
+                                    modifier = Modifier.size(20.dp)
                                 )
                             }
                         }

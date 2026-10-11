@@ -573,6 +573,11 @@ class FocuslyViewModel(application: Application) : AndroidViewModel(application)
             com.example.util.DeepFocusManager.init(app)
             com.example.util.InstalledAppsManager.preloadApps(app)
 
+            // Restore a running study timer FIRST (before slow network work), so the
+            // timer UI never shows the idle "Start Focus" state while a session is
+            // actually active. Handles process death + missed-session completion.
+            val timerWasRestored = restoreTimerStateIfNeeded()
+
             // Load local alarms immediately on cold launch
             val rawLocal = com.example.service.AlarmScheduler.getLocalAlarms(app)
             val dummyLabels = setOf("Morning Deep Focus", "Midday Reset", "Day Review")
@@ -663,28 +668,8 @@ class FocuslyViewModel(application: Application) : AndroidViewModel(application)
             }
             _isAuthChecking.value = false
 
-            // Restore active study timer if running, otherwise set standard initial mode
-            val timerPrefs = app.getSharedPreferences("focusly_local_data", Context.MODE_PRIVATE)
-            val isManualRunning = timerPrefs.getBoolean("is_manual_timer_running", false)
-            val timerEndTime = timerPrefs.getLong("manual_timer_end_time_ms", 0L)
-            val now = System.currentTimeMillis()
-            if (isManualRunning && timerEndTime > now) {
-                val rem = ((timerEndTime - now) / 1000L).toInt().coerceIn(1, 4 * 3600)
-                _isTimerRunning.value = true
-                _remainingSeconds.value = rem
-                _targetSeconds.value = rem
-                timerJob?.cancel()
-                timerJob = viewModelScope.launch {
-                    while (isActive && _remainingSeconds.value > 0) {
-                        delay(1000L)
-                        _remainingSeconds.value -= 1
-                    }
-                    if (_remainingSeconds.value <= 0) {
-                        onTimerCompleted()
-                    }
-                }
-            } else {
-                timerPrefs.edit().putBoolean("is_manual_timer_running", false).putLong("manual_timer_end_time_ms", 0L).apply()
+            // If no timer was restored earlier in init, set the standard initial mode.
+            if (!timerWasRestored) {
                 setMode("Study", 25)
             }
             startAlarmChecker()
@@ -2081,6 +2066,15 @@ class FocuslyViewModel(application: Application) : AndroidViewModel(application)
         }
 
         timerJob?.cancel()
+        startTickJob()
+    }
+
+    /**
+     * UI countdown ticker. Extracted so cold-start timer restore can restart the
+     * same ticking loop without re-running the whole startTimer flow.
+     */
+    private fun startTickJob() {
+        timerJob?.cancel()
         timerJob = viewModelScope.launch {
             while (isActive && _remainingSeconds.value > 0) {
                 delay(1000L)
@@ -2090,6 +2084,104 @@ class FocuslyViewModel(application: Application) : AndroidViewModel(application)
                 onTimerCompleted()
             }
         }
+    }
+
+    // One-shot guard so the cold-start timer restore (called from init AND from
+    // MainActivity.onResume) can never double-run — especially the "complete the
+    // missed session" path, which must record the session exactly once.
+    private val timerRestoreLock = Any()
+    private var timerRestoreDone = false
+    private var timerRestoreWasRunning = false
+
+    /**
+     * Restores a persisted running timer after process death.
+     * - End time in the future  -> restores the RUNNING timer UI (remaining time,
+     *   task title, ticking job) and re-arms the foreground service notification.
+     * - End time already passed -> completes the session via the normal
+     *   onTimerCompleted() path (records the session, shows completion screen).
+     * Safe to call multiple times; only the first call takes effect.
+     * @return true if a running timer was restored, false otherwise.
+     */
+    fun restoreTimerStateIfNeeded(): Boolean {
+        synchronized(timerRestoreLock) {
+            if (timerRestoreDone) return timerRestoreWasRunning
+            timerRestoreDone = true
+        }
+        val restored = performTimerRestore()
+        synchronized(timerRestoreLock) { timerRestoreWasRunning = restored }
+        return restored
+    }
+
+    private fun performTimerRestore(): Boolean {
+        val app = getApplication<Application>()
+        val prefs = app.getSharedPreferences("focusly_local_data", Context.MODE_PRIVATE)
+        val tPrefs = app.getSharedPreferences("focusly_timer_state", Context.MODE_PRIVATE)
+
+        val running = prefs.getBoolean("is_manual_timer_running", false) ||
+                tPrefs.getBoolean("is_timer_running", false)
+        if (!running) return false
+
+        val endTime = prefs.getLong("manual_timer_end_time_ms", 0L)
+        val now = System.currentTimeMillis()
+        val storedTitle = tPrefs.getString("current_task_title", "") ?: ""
+        val storedTarget = tPrefs.getInt("remaining_seconds", 25 * 60).coerceAtLeast(60)
+
+        if (endTime > now) {
+            // Timer still running: restore the running UI state.
+            val remSec = ((endTime - now) / 1000L).toInt().coerceIn(1, 4 * 3600)
+            _isTimerRunning.value = true
+            _remainingSeconds.value = remSec
+            _targetSeconds.value = storedTarget.coerceAtLeast(remSec)
+            if (storedTitle.isNotBlank()) _currentTaskTitle.value = storedTitle
+            sessionStartTimeMs = now
+            accumulatedSessionElapsedSecs = 0
+            startTickJob()
+            // Re-arm the foreground service so the ongoing notification is back.
+            try {
+                val timerIntent = Intent(app, com.example.service.FocusTimerService::class.java).apply {
+                    action = com.example.service.FocusTimerService.ACTION_START_TIMER
+                    putExtra(com.example.service.FocusTimerService.EXTRA_END_TIME_MS, endTime)
+                    putExtra(com.example.service.FocusTimerService.EXTRA_TARGET_SECONDS, _targetSeconds.value)
+                    putExtra(com.example.service.FocusTimerService.EXTRA_TASK_TITLE, _currentTaskTitle.value)
+                    putExtra(com.example.service.FocusTimerService.EXTRA_MODE, _currentMode.value)
+                }
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    app.startForegroundService(timerIntent)
+                } else {
+                    app.startService(timerIntent)
+                }
+            } catch (_: Exception) {}
+            try { com.example.widget.FocivoWidgetHelper.updateAllWidgets(app) } catch (_: Exception) {}
+            Log.i(TAG, "[TimerRestore] Restored running timer with $remSec s remaining")
+            return true
+        }
+
+        if (endTime > 0L) {
+            // Timer expired while the process was dead: complete it properly through the
+            // normal path (records the session + points + shows the completion screen).
+            // Clear the flags FIRST (atomic claim) so the service's own missed-session
+            // handler cannot record the same session twice.
+            prefs.edit()
+                .putBoolean("is_manual_timer_running", false)
+                .putLong("manual_timer_end_time_ms", 0L)
+                .apply()
+            tPrefs.edit().putBoolean("is_timer_running", false).apply()
+            _targetSeconds.value = storedTarget
+            _remainingSeconds.value = 0
+            if (storedTitle.isNotBlank()) _currentTaskTitle.value = storedTitle
+            accumulatedSessionElapsedSecs = 0
+            sessionStartTimeMs = 0L
+            Log.i(TAG, "[TimerRestore] Timer expired while dead; completing missed session")
+            onTimerCompleted()
+        } else {
+            // Flags set but no valid end time: clear the stale flags.
+            prefs.edit()
+                .putBoolean("is_manual_timer_running", false)
+                .putLong("manual_timer_end_time_ms", 0L)
+                .apply()
+            tPrefs.edit().putBoolean("is_timer_running", false).apply()
+        }
+        return false
     }
 
     fun pauseTimer() {

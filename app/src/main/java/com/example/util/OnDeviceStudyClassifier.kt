@@ -55,7 +55,7 @@ object OnDeviceStudyClassifier {
         // Sports / Cricket / Football / IPL
         Regex("""\b(cricket|ipl|score\s+update|live\s+score|who\s+won\s+(the\s+)?match|virat\s+kohli|dhoni|rohit\s+sharma|hardik\s+pandya|football\s+match|messi|ronaldo|premier\s+league|champions\s+league|world\s+cup\s+winner|fifa\s+world\s+cup)\b""", RegexOption.IGNORE_CASE),
         // Hindi & Hinglish casual chat & greetings
-        Regex("""\b(kya\s+kar\s+rahe\s+ho|kaun\s+ho\s+tum|tu\s+kaun\s+hai|kya\s+hal\s+hai|kaise\s+ho|kya\s+chal\s+raha\s+hai|aur\s+batao|bhai\s+sun|kuch\s+batao|bore\s+ho\s+raha|maja\s+nhi\s+aa\s+raha|chitchat|gup\s+shup|kaha\s+se\s+ho|tumhara\s+naam\s+kya\s+hai|chutkula|shayari|time\s+pass)\b""", RegexOption.IGNORE_CASE),
+        Regex("""\b(kya\s+kar\s+rahe\s+ho|kaun\s+ho\s+tum|tu\s+kaun\s+hai|kya\s+hal\s+hai|kya\s+haal|kaise\s+ho|kya\s+chal\s+raha\s+hai|kya\s+scene(\s+hai)?|aur\s+batao|aur\s+bata\b|bhai\s+sun|kuch\s+batao|suna(\s+kya)?|bore\s+ho\s+raha|maja\s+nhi\s+aa\s+raha|ghumne\s+chal|party\s+kab|masti\s+kar|scene\s+hai|chitchat|gup\s+shup|kaha\s+se\s+ho|tumhara\s+naam\s+kya\s+hai|chutkula|shayari|time\s+pass)\b""", RegexOption.IGNORE_CASE),
         // Direct non-study greetings & idle identity prompts to AI
         Regex("""\b(hi|hello|hey|sup|what'?s\s+up|good\s+morning|good\s+night|good\s+evening|who\s+are\s+you|what\s+is\s+your\s+name|how\s+are\s+you|what\s+can\s+you\s+do|are\s+you\s+real|are\s+you\s+human|do\s+you\s+have\s+feelings|can\s+you\s+love|tell\s+me\s+a\s+secret)\b""", RegexOption.IGNORE_CASE),
         // Crypto & Fast Money
@@ -267,11 +267,15 @@ object OnDeviceStudyClassifier {
         // 6. Conversational / non-academic queries with no academic concepts:
         // When a student is using ChatGPT with AI Study Guard, pure conversational small talk
         // or leisure prompts without any educational/academic context are non-study distractions.
+        // Word-boundary matching: avoids false hits like "this"/"which" (contain "hi") or
+        // "however" (contains "how").
+        val shortChatRegex = Regex(
+            """\b(hi|hello|hey|kaise|kya|sun|batao|bata|haal|scene|who|how)\b""",
+            RegexOption.IGNORE_CASE
+        )
         val isShortConversational = trimmed.length < 80 && (
-            lower.contains("hi") || lower.contains("hello") || lower.contains("hey") ||
-            lower.contains("kaise") || lower.contains("kya") || lower.contains("sun") ||
-            lower.contains("batao") || lower.contains("who") || lower.contains("how") ||
-            lower.contains("tell me") || lower.contains("write") || lower.contains("can you")
+            shortChatRegex.containsMatchIn(trimmed) ||
+            lower.contains("tell me") || lower.contains("write ") || lower.contains("can you")
         )
         if (isShortConversational) {
             return ClassificationResult(
