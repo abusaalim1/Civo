@@ -119,6 +119,10 @@ object AiStudyGuardManager {
     fun setAiGuardEnabled(context: Context, enabled: Boolean) {
         val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         prefs.edit().putBoolean(KEY_AI_GUARD_ENABLED, enabled).apply()
+        // MERGED: YouTube AI content detection is part of the master AI Study
+        // Guard — one option instead of two. Drive the YouTube filter state
+        // from the master switch so they can never disagree.
+        YouTubeStudyGuardManager.setFilterEnabled(context, enabled)
         updateGuardStatusNotification(context)
     }
 

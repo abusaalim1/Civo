@@ -1,5 +1,9 @@
 package com.example.ui.components
 
+import android.Manifest
+import android.os.Build
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -20,6 +24,8 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.ExpandLess
+import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Shield
@@ -62,6 +68,7 @@ import com.example.ui.theme.RegainLimePrimary
 import com.example.ui.theme.SecondaryTextLight
 import com.example.ui.theme.isAppInDarkTheme
 import com.example.util.AiStudyGuardManager
+import com.example.util.PermissionUtils
 import com.example.util.ShortsLockManager
 import com.example.util.StrictModeManager
 import com.example.util.YouTubeStudyGuardManager
@@ -88,14 +95,21 @@ fun AiStudyGuardHubSheet(
     var isAiGuardEnabled by remember { mutableStateOf(AiStudyGuardManager.isAiGuardEnabled(context)) }
     var hasAccessibility by remember { mutableStateOf(AiStudyGuardManager.isAccessibilityPermissionGranted(context)) }
     var isStudyActiveNow by remember { mutableStateOf(AiStudyGuardManager.isStudyPeriodActive(context)) }
+    var batteryExempt by remember { mutableStateOf(PermissionUtils.isBatteryOptimizationDisabled(context)) }
+    var notifGranted by remember { mutableStateOf(PermissionUtils.hasNotificationPermission(context)) }
+    var showAutostartGuide by remember { mutableStateOf(false) }
     var showOptInDialog by remember { mutableStateOf(false) }
 
-    val isShortsLockEnabled by ShortsLockManager.isShortsLockState.collectAsState()
-    val isReelsLockEnabled by ShortsLockManager.isReelsLockState.collectAsState()
-    val isYouTubeFilterEnabled by YouTubeStudyGuardManager.isFilterEnabledState.collectAsState()
+    val isShortsReelsBlocked by ShortsLockManager.isShortsReelsBlockState.collectAsState()
     val blockedVideoCount by YouTubeStudyGuardManager.blockedVideosCountState.collectAsState()
     val isStrictModeEnabled by StrictModeManager.isStrictModeState.collectAsState()
     val punishmentLogs by AiStudyGuardManager.punishmentLogs.collectAsState()
+
+    val notifPermissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        notifGranted = granted || PermissionUtils.hasNotificationPermission(context)
+    }
 
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
@@ -103,6 +117,8 @@ fun AiStudyGuardHubSheet(
                 hasAccessibility = AiStudyGuardManager.isAccessibilityPermissionGranted(context)
                 isAiGuardEnabled = AiStudyGuardManager.isAiGuardEnabled(context)
                 isStudyActiveNow = AiStudyGuardManager.isStudyPeriodActive(context)
+                batteryExempt = PermissionUtils.isBatteryOptimizationDisabled(context)
+                notifGranted = PermissionUtils.hasNotificationPermission(context)
                 ShortsLockManager.init(context)
                 YouTubeStudyGuardManager.init(context)
                 AiStudyGuardManager.loadLocalLogs(context)
@@ -204,7 +220,7 @@ fun AiStudyGuardHubSheet(
                                     color = textPrimary
                                 )
                                 Text(
-                                    text = "Watches your AI chats & YouTube during study sessions. Non-study content gets warned first — ignored warnings lock the app for 3 hours.",
+                                    text = "Watches your AI chats and YouTube during study — non-study videos get blocked, off-topic chats get a mascot warning first; ignored warnings lock the app for 3 hours.",
                                     fontSize = 12.5.sp,
                                     lineHeight = 17.sp,
                                     color = textSecondary
@@ -214,73 +230,17 @@ fun AiStudyGuardHubSheet(
                     }
                 }
 
-                // Live guard status — glanceable diagnosis of why the guard may not fire
+                // 1. AI Study Guard master — merged (includes YouTube AI detection),
+                // permission-aware: every required permission gets an inline status + Fix
                 item {
-                    GuardSectionTitle("Guard Status", textPrimary)
-                    GuardCard {
-                        GuardStatusRow(
-                            label = "Accessibility service",
-                            stateText = if (hasAccessibility) "Connected" else "OFF",
-                            ok = hasAccessibility,
-                            textPrimary = textPrimary,
-                            textSecondary = textSecondary,
-                            accentLime = accentLime
-                        )
-                        Spacer(modifier = Modifier.height(8.dp))
-                        GuardStatusRow(
-                            label = "Study period",
-                            stateText = if (isStudyActiveNow) "Active now" else "Inactive",
-                            ok = isStudyActiveNow,
-                            textPrimary = textPrimary,
-                            textSecondary = textSecondary,
-                            accentLime = accentLime
-                        )
-                        Spacer(modifier = Modifier.height(8.dp))
-                        GuardStatusRow(
-                            label = "YouTube AI filter",
-                            stateText = if (isYouTubeFilterEnabled) "ON" else "OFF",
-                            ok = isYouTubeFilterEnabled,
-                            textPrimary = textPrimary,
-                            textSecondary = textSecondary,
-                            accentLime = accentLime
-                        )
-                        Spacer(modifier = Modifier.height(8.dp))
-                        GuardStatusRow(
-                            label = "AI Guard master switch",
-                            stateText = if (isAiGuardEnabled) "ON" else "OFF",
-                            ok = isAiGuardEnabled,
-                            textPrimary = textPrimary,
-                            textSecondary = textSecondary,
-                            accentLime = accentLime
-                        )
-                        if (isAiGuardEnabled && !hasAccessibility) {
-                            Spacer(modifier = Modifier.height(10.dp))
-                            Text(
-                                text = "Accessibility OFF hai — Guard kaam nahi karega",
-                                fontSize = 13.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = Color(0xFFE05252)
-                            )
-                            Spacer(modifier = Modifier.height(4.dp))
-                            Text(
-                                text = "Open settings",
-                                fontSize = 13.sp,
-                                fontWeight = FontWeight.SemiBold,
-                                color = accentLime,
-                                modifier = Modifier.clickable {
-                                    AiStudyGuardManager.openAccessibilitySettings(context)
-                                }
-                            )
-                        }
-                    }
-                }
-
-                // Master switch + accessibility permission
-                item {
+                    GuardSectionTitle("AI Study Guard", textPrimary)
                     GuardCard {
                         GuardSwitchRow(
                             title = "AI Study Guard",
-                            description = if (hasAccessibility) "Active during study sessions" else "Needs accessibility permission",
+                            description = if (hasAccessibility)
+                                "AI chat + YouTube detection during study ($blockedVideoCount videos blocked)"
+                            else
+                                "Needs permissions below to work",
                             checked = isAiGuardEnabled,
                             textPrimary = textPrimary,
                             textSecondary = textSecondary,
@@ -294,69 +254,122 @@ fun AiStudyGuardHubSheet(
                                 }
                             }
                         )
-                        Spacer(modifier = Modifier.height(10.dp))
+                        Spacer(modifier = Modifier.height(6.dp))
+                        Text(
+                            text = "The guard needs these permissions:",
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = textSecondary
+                        )
+                        GuardPermissionRow(
+                            label = "Accessibility service",
+                            granted = hasAccessibility,
+                            textSecondary = textSecondary,
+                            accentLime = accentLime,
+                            onFix = { AiStudyGuardManager.openAccessibilitySettings(context) }
+                        )
+                        GuardPermissionRow(
+                            label = "Battery optimization OFF",
+                            granted = batteryExempt,
+                            textSecondary = textSecondary,
+                            accentLime = accentLime,
+                            onFix = { PermissionUtils.openBatteryOptimizationSettings(context) }
+                        )
+                        GuardPermissionRow(
+                            label = "Notifications",
+                            granted = notifGranted,
+                            textSecondary = textSecondary,
+                            accentLime = accentLime,
+                            onFix = {
+                                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                                    notifPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+                                } else {
+                                    PermissionUtils.openAppNotificationSettings(context)
+                                }
+                            }
+                        )
+                        // Autostart guide (no reliable API — per-brand manual steps)
                         Row(
-                            modifier = Modifier.fillMaxWidth(),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { showAutostartGuide = !showAutostartGuide }
+                                .padding(vertical = 6.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Box(
                                 modifier = Modifier
                                     .size(10.dp)
                                     .clip(CircleShape)
-                                    .background(if (hasAccessibility) accentLime else Color(0xFFFF8A65))
+                                    .background(Color(0xFFFF8A65))
                             )
                             Spacer(modifier = Modifier.width(8.dp))
-                            Text(
-                                text = if (hasAccessibility) "Accessibility permission granted" else "Accessibility permission required",
-                                fontSize = 12.sp,
-                                color = textSecondary,
-                                modifier = Modifier.weight(1f)
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = "Autostart",
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = textPrimary
+                                )
+                                Text(
+                                    text = "Manual step — tap for your phone's guide",
+                                    fontSize = 11.5.sp,
+                                    color = textSecondary
+                                )
+                            }
+                            Icon(
+                                imageVector = if (showAutostartGuide) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                                contentDescription = null,
+                                tint = textSecondary,
+                                modifier = Modifier.size(20.dp)
                             )
-                            Text(
-                                text = "Open settings",
-                                fontSize = 13.sp,
-                                fontWeight = FontWeight.SemiBold,
-                                color = accentLime,
-                                modifier = Modifier.clickable {
-                                    AiStudyGuardManager.openAccessibilitySettings(context)
+                        }
+                        if (showAutostartGuide) {
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(12.dp))
+                                    .background(accentLime.copy(alpha = 0.08f))
+                                    .padding(12.dp)
+                            ) {
+                                val steps = listOf(
+                                    "Xiaomi / Redmi / Poco" to "Settings → Apps → Manage apps → Focivo → Autostart ON",
+                                    "Oppo / Realme" to "Settings → App management → Focivo → Allow auto-start",
+                                    "Samsung" to "Settings → Apps → Focivo → Battery → Unrestricted",
+                                    "Vivo" to "Settings → Battery → Background power consumption → allow Focivo"
+                                )
+                                steps.forEach { (brand, step) ->
+                                    Text(
+                                        text = brand,
+                                        fontSize = 12.5.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = textPrimary,
+                                        modifier = Modifier.padding(top = 6.dp)
+                                    )
+                                    Text(
+                                        text = step,
+                                        fontSize = 12.sp,
+                                        color = textSecondary
+                                    )
                                 }
-                            )
+                            }
                         }
                     }
                 }
 
-                // Content filters
+                // 2. Shorts & Reels Block — ONE merged toggle for both
                 item {
-                    GuardSectionTitle("Content Filters", textPrimary)
+                    GuardSectionTitle("Distraction Locks", textPrimary)
                     GuardCard {
                         GuardSwitchRow(
-                            title = "YouTube AI Filter",
-                            description = "AI checks video titles during study ($blockedVideoCount blocked so far)",
-                            checked = isYouTubeFilterEnabled,
+                            title = "Shorts & Reels Block",
+                            description = "Blocks the YouTube Shorts player and Instagram Reels viewer during study",
+                            checked = isShortsReelsBlocked,
                             textPrimary = textPrimary,
                             textSecondary = textSecondary,
                             accentLime = accentLime,
-                            onCheckedChange = { YouTubeStudyGuardManager.setFilterEnabled(context, it) }
-                        )
-                        Spacer(modifier = Modifier.height(8.dp))
-                        GuardSwitchRow(
-                            title = "YouTube Shorts Lock",
-                            description = "Blocks the Shorts player during study",
-                            checked = isShortsLockEnabled,
-                            textPrimary = textPrimary,
-                            textSecondary = textSecondary,
-                            accentLime = accentLime,
-                            onCheckedChange = { ShortsLockManager.setShortsLockEnabled(context, it) }
-                        )
-                        Spacer(modifier = Modifier.height(8.dp))
-                        GuardSwitchRow(
-                            title = "Instagram Reels Lock",
-                            description = "Blocks the Reels viewer during study",
-                            checked = isReelsLockEnabled,
-                            textPrimary = textPrimary,
-                            textSecondary = textSecondary,
-                            accentLime = accentLime,
-                            onCheckedChange = { ShortsLockManager.setReelsLockEnabled(context, it) }
+                            onCheckedChange = { enabled ->
+                                ShortsLockManager.setShortsReelsBlockEnabled(context, enabled)
+                            }
                         )
                     }
                 }
@@ -430,6 +443,33 @@ fun AiStudyGuardHubSheet(
                     }
                 }
 
+                // How it works
+                item {
+                    GuardSectionTitle("How it works", textPrimary)
+                    GuardCard {
+                        val steps = listOf(
+                            "1. Turn on AI Study Guard and grant the permissions above — it arms automatically during focus timers and study schedules.",
+                            "2. It watches ChatGPT, Claude, Gemini, Copilot, Perplexity and YouTube — only during study.",
+                            "3. Non-study YouTube videos get blocked automatically; off-topic AI chats get a mascot warning first.",
+                            "4. Shorts & Reels Block stops the Shorts player and Reels viewer during study.",
+                            "5. Ignore the warning and keep going → that app locks for 3 hours. Genuine study doubts stay allowed."
+                        )
+                        steps.forEach { step ->
+                            Row(modifier = Modifier.padding(vertical = 4.dp)) {
+                                Icon(
+                                    Icons.Default.PlayArrow,
+                                    contentDescription = null,
+                                    tint = accentLime,
+                                    modifier = Modifier.size(16.dp).padding(top = 2.dp)
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(text = step, fontSize = 12.5.sp, lineHeight = 17.sp, color = textSecondary)
+                            }
+                        }
+                    }
+                }
+
+
                 // Pipeline self-test — bypasses the classifier, runs the real
                 // warning -> 3-hour lock flow with a fake message
                 item {
@@ -474,28 +514,45 @@ fun AiStudyGuardHubSheet(
                     }
                 }
 
-                // How it works
+                // Live guard status — last: glanceable diagnosis of why the guard may not fire
                 item {
-                    GuardSectionTitle("How it works", textPrimary)
+                    GuardSectionTitle("Guard Status", textPrimary)
                     GuardCard {
-                        val steps = listOf(
-                            "1. Start a focus timer or study schedule — the guard arms automatically.",
-                            "2. It reads what's on screen inside ChatGPT, Claude, Gemini, Copilot, Perplexity and YouTube (only during study).",
-                            "3. On-device AI judges study vs non-study instantly; optional cloud check verifies deeper.",
-                            "4. Study doubts stay allowed — YouTube & AI chats remain open for genuine questions.",
-                            "5. Off-topic chat → mascot warning → continue anyway → 3-hour lock of that app."
+                        GuardStatusRow(
+                            label = "Accessibility service",
+                            stateText = if (hasAccessibility) "Connected" else "OFF",
+                            ok = hasAccessibility,
+                            textPrimary = textPrimary,
+                            textSecondary = textSecondary,
+                            accentLime = accentLime
                         )
-                        steps.forEach { step ->
-                            Row(modifier = Modifier.padding(vertical = 4.dp)) {
-                                Icon(
-                                    Icons.Default.PlayArrow,
-                                    contentDescription = null,
-                                    tint = accentLime,
-                                    modifier = Modifier.size(16.dp).padding(top = 2.dp)
-                                )
-                                Spacer(modifier = Modifier.width(8.dp))
-                                Text(text = step, fontSize = 12.5.sp, lineHeight = 17.sp, color = textSecondary)
-                            }
+                        Spacer(modifier = Modifier.height(8.dp))
+                        GuardStatusRow(
+                            label = "Study period",
+                            stateText = if (isStudyActiveNow) "Active now" else "Inactive",
+                            ok = isStudyActiveNow,
+                            textPrimary = textPrimary,
+                            textSecondary = textSecondary,
+                            accentLime = accentLime
+                        )
+                        if (isAiGuardEnabled && !hasAccessibility) {
+                            Spacer(modifier = Modifier.height(10.dp))
+                            Text(
+                                text = "Accessibility OFF hai — Guard kaam nahi karega",
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Color(0xFFE05252)
+                            )
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                text = "Open settings",
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                color = accentLime,
+                                modifier = Modifier.clickable {
+                                    AiStudyGuardManager.openAccessibilitySettings(context)
+                                }
+                            )
                         }
                     }
                 }
@@ -577,6 +634,54 @@ private fun GuardStatusRow(
             fontWeight = FontWeight.SemiBold,
             color = if (ok) textPrimary else Color(0xFFE05252)
         )
+    }
+}
+
+@Composable
+private fun GuardPermissionRow(
+    label: String,
+    granted: Boolean,
+    textSecondary: Color,
+    accentLime: Color,
+    onFix: () -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 6.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Box(
+            modifier = Modifier
+                .size(10.dp)
+                .clip(CircleShape)
+                .background(if (granted) accentLime else Color(0xFFFF8A65))
+        )
+        Spacer(modifier = Modifier.width(8.dp))
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = label,
+                fontSize = 13.sp,
+                fontWeight = FontWeight.SemiBold,
+                color = if (granted) textSecondary else Color(0xFFE05252)
+            )
+            Text(
+                text = if (granted) "Granted" else "Missing — guard may not work",
+                fontSize = 11.5.sp,
+                color = textSecondary
+            )
+        }
+        if (!granted) {
+            Text(
+                text = "Fix",
+                fontSize = 13.sp,
+                fontWeight = FontWeight.Bold,
+                color = accentLime,
+                modifier = Modifier
+                    .clickable { onFix() }
+                    .padding(6.dp)
+            )
+        }
     }
 }
 
