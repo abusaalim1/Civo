@@ -19,7 +19,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AccessibilityNew
-import androidx.compose.material.icons.filled.BatteryCharging
+import androidx.compose.material.icons.filled.BatteryChargingFull
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Layers
 import androidx.compose.material.icons.filled.OpenInNew
@@ -210,7 +210,7 @@ fun FocusShieldPermissionSheet(
                 title = "4. Battery Optimization OFF",
                 description = if (hasBatteryExemption) "Granted · Guard & timer stay alive in background" else "Stops your phone from killing the AI Guard & timer in the background.",
                 isGranted = hasBatteryExemption,
-                icon = Icons.Default.BatteryCharging,
+                icon = Icons.Default.BatteryChargingFull,
                 onClick = {
                     if (!hasBatteryExemption) {
                         com.example.util.PermissionUtils.openBatteryOptimizationSettings(context)
