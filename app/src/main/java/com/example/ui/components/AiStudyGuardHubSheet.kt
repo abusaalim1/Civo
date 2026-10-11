@@ -106,6 +106,9 @@ fun AiStudyGuardHubSheet(
     val blockedVideoCount by YouTubeStudyGuardManager.blockedVideosCountState.collectAsState()
     val isStrictModeEnabled by StrictModeManager.isStrictModeState.collectAsState()
     val punishmentLogs by AiStudyGuardManager.punishmentLogs.collectAsState()
+    // v1.1.9: diagnostic activity log
+    val guardActivity by AiStudyGuardManager.guardActivity.collectAsState()
+    var activityExpanded by remember { mutableStateOf(false) }
 
     val notifPermissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission()
@@ -125,6 +128,8 @@ fun AiStudyGuardHubSheet(
                 ShortsLockManager.init(context)
                 YouTubeStudyGuardManager.init(context)
                 AiStudyGuardManager.loadLocalLogs(context)
+                // v1.1.9: refresh the diagnostic activity log
+                AiStudyGuardManager.loadGuardActivity(context)
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
@@ -581,6 +586,62 @@ fun AiStudyGuardHubSheet(
                     }
                 }
 
+                // v1.1.9: diagnostic — recent guard activity. Lets the owner screenshot
+                // exactly where detection dies (each evaluation incl. skips is logged).
+                item {
+                    GuardSectionTitle("Recent guard activity", textPrimary)
+                    GuardCard {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { activityExpanded = !activityExpanded },
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = "Diagnostics log",
+                                fontSize = 13.sp,
+                                color = textSecondary,
+                                modifier = Modifier.weight(1f)
+                            )
+                            Text(
+                                text = "${guardActivity.size}",
+                                fontSize = 12.sp,
+                                color = textSecondary
+                            )
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Icon(
+                                if (activityExpanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                                contentDescription = if (activityExpanded) "Collapse" else "Expand",
+                                tint = textSecondary,
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
+                        if (activityExpanded) {
+                            Spacer(modifier = Modifier.height(8.dp))
+                            if (guardActivity.isEmpty()) {
+                                Text(
+                                    text = "No guard activity yet — start a timer, then use YouTube or an AI chat app.",
+                                    fontSize = 12.sp,
+                                    color = textSecondary
+                                )
+                            } else {
+                                guardActivity.forEach { entry ->
+                                    GuardActivityRow(entry, textPrimary, textSecondary, accentLime)
+                                    Spacer(modifier = Modifier.height(6.dp))
+                                }
+                            }
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                text = "Clear log",
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                color = accentLime,
+                                modifier = Modifier.clickable { AiStudyGuardManager.clearGuardActivity(context) }
+                            )
+                        }
+                    }
+                }
+
                 item { Spacer(modifier = Modifier.height(24.dp)) }
             }
         }
@@ -658,6 +719,64 @@ private fun GuardStatusRow(
             fontWeight = FontWeight.SemiBold,
             color = if (ok) textPrimary else Color(0xFFE05252)
         )
+    }
+}
+
+@Composable
+private fun GuardActivityRow(
+    entry: AiStudyGuardManager.GuardActivityEntry,
+    textPrimary: Color,
+    textSecondary: Color,
+    accentLime: Color
+) {
+    val timeStr = try {
+        SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date(entry.ts))
+    } catch (_: Exception) {
+        "--:--"
+    }
+    val verdictColor = when (entry.verdict) {
+        "NON_STUDY" -> Color(0xFFE05252)
+        "STUDY" -> accentLime
+        "SKIPPED" -> Color(0xFFFF8A65)
+        else -> textSecondary
+    }
+    Column(modifier = Modifier.fillMaxWidth()) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(text = timeStr, fontSize = 11.5.sp, color = textSecondary)
+            Text(text = " · ", fontSize = 11.5.sp, color = textSecondary)
+            Text(
+                text = entry.app,
+                fontSize = 11.5.sp,
+                fontWeight = FontWeight.SemiBold,
+                color = textPrimary
+            )
+            Text(text = " · ", fontSize = 11.5.sp, color = textSecondary)
+            Text(
+                text = entry.verdict,
+                fontSize = 11.5.sp,
+                fontWeight = FontWeight.Bold,
+                color = verdictColor
+            )
+        }
+        val detail = buildString {
+            if (entry.stage.isNotBlank()) append(entry.stage)
+            if (entry.reason.isNotBlank()) {
+                if (isNotEmpty()) append(" · ")
+                append(entry.reason)
+            }
+            if (entry.snippet.isNotBlank()) {
+                if (isNotEmpty()) append(" — ")
+                append("“").append(entry.snippet).append("”")
+            }
+        }
+        if (detail.isNotBlank()) {
+            Text(
+                text = detail,
+                fontSize = 11.sp,
+                color = textSecondary,
+                modifier = Modifier.padding(top = 2.dp)
+            )
+        }
     }
 }
 

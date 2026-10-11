@@ -146,6 +146,10 @@ class AiStudyAccessibilityService : AccessibilityService() {
             // CRITICAL: App blocking and study guard ONLY run during an active study session or active triggered schedule!
             val isStudyPeriod = AiStudyGuardManager.isStudyPeriodActive(applicationContext)
             if (!isStudyPeriod) {
+                // v1.1.9 diagnostic: record why monitored apps are skipped (throttled).
+                guardMonitoredLabel(pkg)?.let { label ->
+                    AiStudyGuardManager.logGuardSkip(applicationContext, label, "gate", "not-study-period")
+                }
                 // When user is not studying, apps are 100% free and never intercepted/locked.
                 return
             }
@@ -306,8 +310,14 @@ class AiStudyAccessibilityService : AccessibilityService() {
                                         Log.d(TAG, "[YouTube AI Guard] Primary title extraction missed; using fallback title: '$fallbackTitle'")
                                         val blocked = processYouTubeVideoTitle(fallbackTitle, null, "fallback_title_scan")
                                         if (blocked) return
+                                    } else {
+                                        // v1.1.9 diagnostic: nothing title-like on screen.
+                                        AiStudyGuardManager.logGuardSkip(applicationContext, "YouTube", "youtube-title", "title-null")
                                     }
                                 }
+                            } else {
+                                // v1.1.9 diagnostic
+                                AiStudyGuardManager.logGuardSkip(applicationContext, "YouTube", "youtube", "filter-disabled")
                             }
                         } finally {
                             try { rootNode.recycle() } catch (_: Exception) {}
@@ -376,12 +386,21 @@ class AiStudyAccessibilityService : AccessibilityService() {
                     pkg.contains("perplexity", ignoreCase = true) ||
                     pkg.contains("copilot", ignoreCase = true)
 
+            // v1.1.9 diagnostic: guard master switch off (throttled).
+            if (isAiApp && !AiStudyGuardManager.isAiGuardEnabled(applicationContext)) {
+                AiStudyGuardManager.logGuardSkip(applicationContext, guardMonitoredLabel(pkg) ?: pkg.take(24), "chat", "guard-disabled")
+            }
+
             if (isAiApp && isStudyPeriod && (eventType == AccessibilityEvent.TYPE_VIEW_TEXT_CHANGED
                         || eventType == AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED
                         || isWindowStateChanged) && AiStudyGuardManager.isAiGuardEnabled(applicationContext)) {
                 // Throttle full tree-walks: at most one scan per package per 1.5s
                 val lastScan = lastAiChatScanMs[pkg] ?: 0L
-                if (nowTime - lastScan < 1500L) return
+                if (nowTime - lastScan < 1500L) {
+                    // v1.1.9 diagnostic (throttled)
+                    AiStudyGuardManager.logGuardSkip(applicationContext, guardMonitoredLabel(pkg) ?: pkg.take(24), "chat", "throttled")
+                    return
+                }
                 lastAiChatScanMs[pkg] = nowTime
                 if (lastAiChatScanMs.size > 40) {
                     val cutoff = nowTime - 120_000L
@@ -411,10 +430,14 @@ class AiStudyAccessibilityService : AccessibilityService() {
                         }
 
                         if (newCandidates.isNotEmpty()) {
+                            // v1.1.9 diagnostic label
+                            val chatLabel = guardMonitoredLabel(pkg) ?: pkg.take(24)
                             for (candidate in newCandidates) {
                                 val result = OnDeviceStudyClassifier.evaluateContent(candidate)
                                 if (result.isCasual) {
                                     Log.w(TAG, "[Non-Study Message] App: $pkg, Message: '$candidate', Reason: ${result.reason}")
+                                    // v1.1.9 diagnostic
+                                    AiStudyGuardManager.logGuardActivity(applicationContext, chatLabel, "chat-ondevice", "NON_STUDY", result.reason.take(64), candidate)
                                     // v1.1.8: feed confident verdict into the sticky cache so
                                     // low-signal follow-ups ("ok", "lol", ...) inherit it.
                                     StudyGuardKnowledge.noteExternalChatVerdict(pkg, StudyGuardKnowledge.Verdict.NON_STUDY)
@@ -431,6 +454,8 @@ class AiStudyAccessibilityService : AccessibilityService() {
                                     when (StudyGuardKnowledge.scoreChatMessage(candidate, pkg)) {
                                         StudyGuardKnowledge.Verdict.NON_STUDY -> {
                                             Log.w(TAG, "[StudyGuardKnowledge] Non-study message in $pkg: '$candidate'")
+                                            // v1.1.9 diagnostic
+                                            AiStudyGuardManager.logGuardActivity(applicationContext, chatLabel, "chat-knowledge", "NON_STUDY", "knowledge", candidate)
                                             AiStudyGuardManager.onNonStudyDetected(
                                                 context = applicationContext,
                                                 packageName = pkg,
@@ -439,6 +464,8 @@ class AiStudyAccessibilityService : AccessibilityService() {
                                             )
                                         }
                                         StudyGuardKnowledge.Verdict.STUDY -> {
+                                            // v1.1.9 diagnostic
+                                            AiStudyGuardManager.logGuardActivity(applicationContext, chatLabel, "chat-knowledge", "STUDY", "knowledge", candidate)
                                             AiStudyGuardManager.onStudyActivityDetected(
                                                 context = applicationContext,
                                                 packageName = pkg,
@@ -453,6 +480,8 @@ class AiStudyAccessibilityService : AccessibilityService() {
                                             val lastGem = lastAiChatGeminiMs[pkg] ?: 0L
                                             if (nowGem - lastGem >= 8000L && candidate.length >= 4) {
                                                 lastAiChatGeminiMs[pkg] = nowGem
+                                                // v1.1.9 diagnostic
+                                                AiStudyGuardManager.logGuardActivity(applicationContext, chatLabel, "chat-knowledge", "UNCERTAIN", "→gemini", candidate)
                                                 val msgCopy = candidate
                                                 serviceScope.launch {
                                                     try {
@@ -463,6 +492,8 @@ class AiStudyAccessibilityService : AccessibilityService() {
                                                         if (!gv.isStudyAllowed || gv.isAdult) {
                                                             Log.w(TAG, "[Gemini Chat Guard] Non-study message in $pkg: '$msgCopy' -> ${gv.reason}")
                                                             StudyGuardKnowledge.noteExternalChatVerdict(pkg, StudyGuardKnowledge.Verdict.NON_STUDY)
+                                                            // v1.1.9 diagnostic
+                                                            AiStudyGuardManager.logGuardActivity(applicationContext, chatLabel, "chat-gemini", "NON_STUDY", gv.reason.take(64), msgCopy)
                                                             AiStudyGuardManager.onNonStudyDetected(
                                                                 context = applicationContext,
                                                                 packageName = pkg,
@@ -471,17 +502,26 @@ class AiStudyAccessibilityService : AccessibilityService() {
                                                             )
                                                         } else {
                                                             StudyGuardKnowledge.noteExternalChatVerdict(pkg, StudyGuardKnowledge.Verdict.STUDY)
+                                                            // v1.1.9 diagnostic
+                                                            AiStudyGuardManager.logGuardActivity(applicationContext, chatLabel, "chat-gemini", "STUDY", "gemini-allow", msgCopy)
                                                         }
                                                     } catch (t: Throwable) {
                                                         Log.w(TAG, "Gemini chat evaluation failed: ${t.message}")
+                                                        // v1.1.9 diagnostic
+                                                        AiStudyGuardManager.logGuardActivity(applicationContext, chatLabel, "chat-gemini", "UNCERTAIN", "gemini-error", msgCopy)
                                                     }
                                                 }
+                                            } else {
+                                                // v1.1.9 diagnostic: throttled or too short for Gemini.
+                                                AiStudyGuardManager.logGuardSkip(applicationContext, chatLabel, "chat-gemini", "throttled")
                                             }
                                         }
                                     }
                                 } else {
                                     // v1.1.8: confident study verdict feeds the sticky cache.
                                     StudyGuardKnowledge.noteExternalChatVerdict(pkg, StudyGuardKnowledge.Verdict.STUDY)
+                                    // v1.1.9 diagnostic
+                                    AiStudyGuardManager.logGuardActivity(applicationContext, chatLabel, "chat-ondevice", "STUDY", result.reason.take(64), candidate)
                                     AiStudyGuardManager.onStudyActivityDetected(
                                         context = applicationContext,
                                         packageName = pkg,
@@ -693,6 +733,23 @@ class AiStudyAccessibilityService : AccessibilityService() {
      * Returns true when the video was quick-blocked and the caller should stop
      * processing this event; false when a background Gemini check was launched.
      */
+    /**
+     * v1.1.9 diagnostic: short label for guard-monitored apps, null for others.
+     * Used only for the activity log so the owner can see which app an entry
+     * belongs to.
+     */
+    private fun guardMonitoredLabel(pkg: String): String? {
+        return when {
+            pkg == "com.google.android.youtube" || pkg.contains("youtube", ignoreCase = true) -> "YouTube"
+            pkg == "com.openai.chatgpt" || pkg.contains("chatgpt", ignoreCase = true) || pkg.contains("openai", ignoreCase = true) -> "ChatGPT"
+            pkg.contains("claude", ignoreCase = true) || pkg.contains("anthropic", ignoreCase = true) -> "Claude"
+            pkg.contains("perplexity", ignoreCase = true) -> "Perplexity"
+            pkg.contains("copilot", ignoreCase = true) -> "Copilot"
+            pkg.contains("bard", ignoreCase = true) -> "Gemini"
+            else -> null
+        }
+    }
+
     private fun processYouTubeVideoTitle(title: String, channel: String?, metadata: String?): Boolean {
         // v1.1.8: curated offline knowledge first — instant (<1ms), zero network.
         // Confident verdicts are used directly; UNCERTAIN falls through to the
@@ -700,9 +757,13 @@ class AiStudyAccessibilityService : AccessibilityService() {
         when (StudyGuardKnowledge.scoreVideo(title, channel)) {
             StudyGuardKnowledge.Verdict.STUDY -> {
                 Log.d(TAG, "[StudyGuardKnowledge] Study video allowed: '$title' ($channel)")
+                // v1.1.9 diagnostic
+                AiStudyGuardManager.logGuardActivity(applicationContext, "YouTube", "youtube-knowledge", "STUDY", "knowledge", title)
                 return false
             }
             StudyGuardKnowledge.Verdict.NON_STUDY -> {
+                // v1.1.9 diagnostic (log every evaluation, before the action throttle)
+                AiStudyGuardManager.logGuardActivity(applicationContext, "YouTube", "youtube-knowledge", "NON_STUDY", "knowledge", title)
                 val now = System.currentTimeMillis()
                 if (now - lastYouTubeAiInterceptTimeMs > 1500L) {
                     lastYouTubeAiInterceptTimeMs = now
@@ -735,6 +796,11 @@ class AiStudyAccessibilityService : AccessibilityService() {
         )
 
         if (!quickVerdict.isStudyAllowed || quickVerdict.isAdult) {
+            // v1.1.9 diagnostic (log every evaluation, before the action throttle)
+            AiStudyGuardManager.logGuardActivity(
+                applicationContext, "YouTube", "youtube-quick", "NON_STUDY",
+                quickVerdict.category.ifBlank { "quick" }, title
+            )
             val now = System.currentTimeMillis()
             if (now - lastYouTubeAiInterceptTimeMs > 1500L) {
                 lastYouTubeAiInterceptTimeMs = now
@@ -757,6 +823,8 @@ class AiStudyAccessibilityService : AccessibilityService() {
             }
             return true
         } else {
+            // v1.1.9 diagnostic
+            AiStudyGuardManager.logGuardActivity(applicationContext, "YouTube", "youtube-quick", "UNCERTAIN", "quick-allow→gemini", title)
             // Launch background Gemini check for deep verification
             serviceScope.launch {
                 val geminiVerdict = GeminiContentClassifier.evaluateWithGemini(
@@ -765,6 +833,11 @@ class AiStudyAccessibilityService : AccessibilityService() {
                     metadata = metadata
                 )
                 if (!geminiVerdict.isStudyAllowed || geminiVerdict.isAdult) {
+                    // v1.1.9 diagnostic
+                    AiStudyGuardManager.logGuardActivity(
+                        applicationContext, "YouTube", "youtube-gemini", "NON_STUDY",
+                        geminiVerdict.category.ifBlank { "gemini" }, title
+                    )
                     val now = System.currentTimeMillis()
                     if (now - lastYouTubeAiInterceptTimeMs > 1500L) {
                         lastYouTubeAiInterceptTimeMs = now
@@ -785,6 +858,9 @@ class AiStudyAccessibilityService : AccessibilityService() {
                             isGeminiIntercept = true
                         )
                     }
+                } else {
+                    // v1.1.9 diagnostic
+                    AiStudyGuardManager.logGuardActivity(applicationContext, "YouTube", "youtube-gemini", "STUDY", "gemini-allow", title)
                 }
             }
             return false

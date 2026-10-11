@@ -106,7 +106,7 @@ fun RegainMascotView(
         MascotPose.GUARD_WARNING -> R.drawable.mascot_warning
         MascotPose.GUARD -> R.drawable.mascot_guard
         MascotPose.STUDY_POSE -> R.drawable.mascot_study
-        MascotPose.CELEBRATE_NEW -> R.drawable.mascot_celebrate
+        MascotPose.CELEBRATE_NEW -> R.drawable.mascot_celebrate_transparent
         MascotPose.IDLE -> R.drawable.mascot_base
     }
 

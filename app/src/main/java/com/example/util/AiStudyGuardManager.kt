@@ -1,5 +1,6 @@
 package com.example.util
 
+import android.app.ActivityManager
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
@@ -26,6 +27,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import java.text.SimpleDateFormat
@@ -106,6 +108,7 @@ object AiStudyGuardManager {
     fun init(context: Context) {
         createNotificationChannel(context)
         loadLocalLogs(context)
+        loadGuardActivity(context)
         updateGuardStatusNotification(context)
     }
 
@@ -132,6 +135,13 @@ object AiStudyGuardManager {
      * 2. Inside an active Auto Study Schedule window (checking start_time, end_time, active day, break window)
      *
      * Protection ONLY applies during genuine active study sessions or triggered schedules.
+     *
+     * v1.1.9 robustness: the two timer prefs files are written with separate apply()
+     * calls, so a kill between them (or any writer inconsistency) can leave
+     * is_timer_running=true while manual_timer_end_time_ms is 0/stale — which used
+     * to silently kill the guard (zero detections). In that suspicious state we check
+     * whether FocusTimerService is actually alive (it only runs during a genuine
+     * timer session) instead of trusting the stale end time.
      */
     fun isStudyPeriodActive(context: Context): Boolean {
         val now = System.currentTimeMillis()
@@ -141,12 +151,36 @@ object AiStudyGuardManager {
         val timerEndTime = localPrefs.getLong("manual_timer_end_time_ms", 0L)
         val timerStatePrefs = context.getSharedPreferences("focusly_timer_state", Context.MODE_PRIVATE)
         val isTimerStateRunning = timerStatePrefs.getBoolean("is_timer_running", false)
-        val isTimerActive = (isManualRunning || isTimerStateRunning) && (timerEndTime > now)
+
+        val flagsSayRunning = isManualRunning || isTimerStateRunning
+        // Normal path: flags say running AND the end time is fresh.
+        val freshTimerActive = flagsSayRunning && timerEndTime > now
+        // Hole path (v1.1.9): timer_state says running but the manual end-time is
+        // missing/stale. Trust it only if the timer service is genuinely alive.
+        val staleButLive = isTimerStateRunning && timerEndTime <= now && isFocusTimerServiceAlive(context)
 
         // 2. Active Auto Study Schedule window
         val isScheduleActive = ScheduledBlockScheduler.isScheduleCurrentlyActive(context)
 
-        return isTimerActive || isScheduleActive
+        return freshTimerActive || staleButLive || isScheduleActive
+    }
+
+    /**
+     * v1.1.9: liveness check for the dead-guard hole. FocusTimerService is a
+     * foreground service that only exists while a timer session is genuinely
+     * active, so a live service means the timer is real even if the prefs
+     * end-time got out of sync.
+     */
+    private fun isFocusTimerServiceAlive(context: Context): Boolean {
+        return try {
+            val am = context.getSystemService(Context.ACTIVITY_SERVICE) as? ActivityManager
+                ?: return false
+            @Suppress("DEPRECATION")
+            val running = am.getRunningServices(Int.MAX_VALUE) ?: return false
+            running.any { it.service.className == "com.example.service.FocusTimerService" }
+        } catch (_: Throwable) {
+            false
+        }
     }
 
     fun updateGuardStatusNotification(context: Context) {
@@ -219,6 +253,8 @@ object AiStudyGuardManager {
     fun onStudyActivityDetected(context: Context, packageName: String, messageText: String = "") {
         val count = nonStudyMessageCounts[packageName] ?: 0
         Log.d(TAG, "[AiGuard Classification] App: $packageName | Result: STUDY | Message: '$messageText' | Running Counter: $count")
+        // v1.1.9 diagnostic
+        logGuardActivity(context, packageName, "outcome", "STUDY", "counter=$count", messageText)
 
         val cur = _activeWarning.value
         if (cur != null && cur.packageName == packageName) {
@@ -242,7 +278,11 @@ object AiStudyGuardManager {
         reason: String = "",
         textHash: Int = 0
     ) {
-        if (!isAiGuardEnabled(context)) return
+        if (!isAiGuardEnabled(context)) {
+            // v1.1.9 diagnostic (throttled)
+            logGuardSkip(context, packageName, "outcome", "guard-disabled")
+            return
+        }
 
         val appName = when {
             packageName.contains("claude") -> "Claude"
@@ -254,6 +294,8 @@ object AiStudyGuardManager {
         // If already under 3h punishment lock, ignore
         if (isAppUnderPunishment(context, packageName)) {
             Log.d(TAG, "$appName is already under punishment lock")
+            // v1.1.9 diagnostic (throttled — can fire per event)
+            logGuardSkip(context, packageName, "outcome", "already-punished")
             return
         }
 
@@ -268,10 +310,14 @@ object AiStudyGuardManager {
         if (count == 1) {
             // 1st non-study message: Immediately trigger Stage 1 Warning
             Log.w(TAG, "[AiGuard] Non-study message #1 detected for $appName! Triggering Stage 1 Warning.")
+            // v1.1.9 diagnostic
+            logGuardActivity(context, packageName, "outcome", "NON_STUDY", "count=1→warning", messageText)
             triggerStage1Warning(context, packageName, appName, reason.ifBlank { "Non-study conversation: '$messageText'" })
         } else if (count >= 2) {
             // Continued non-study messaging after warning: Trigger Stage 2 Block / Punishment
             Log.w(TAG, "[AiGuard] Continued non-study usage (count=$count) after warning for $appName! Triggering Stage 2 Block.")
+            // v1.1.9 diagnostic
+            logGuardActivity(context, packageName, "outcome", "NON_STUDY", "count=$count→block-3h", messageText)
             val warningToUse = currentWarning ?: ActiveAiWarning(
                 logId = java.util.UUID.randomUUID().toString(),
                 packageName = packageName,
@@ -773,6 +819,127 @@ object AiStudyGuardManager {
     fun isGuardListeningRecently(context: Context): Boolean {
         val last = getLastGuardEventAtMs(context)
         return last > 0L && System.currentTimeMillis() - last < 5 * 60 * 1000L
+    }
+
+    // ------------------------------------------------------------------
+    // v1.1.9: Guard activity log — lightweight diagnostic ring buffer.
+    // The owner's guard detects nothing and we are blind without device logs,
+    // so every evaluation (including skips) is recorded here. The hub shows
+    // the recent entries; the owner screenshots them to show exactly where
+    // detection dies.
+    // Privacy: only the first 60 chars of evaluated text are kept, never full
+    // messages. Prefs writes are throttled to at most once per 5s (the
+    // in-memory buffer is always current).
+    // ------------------------------------------------------------------
+    @kotlinx.serialization.Serializable
+    data class GuardActivityEntry(
+        val ts: Long = 0L,
+        val app: String = "",
+        val stage: String = "",
+        val verdict: String = "",
+        val reason: String = "",
+        val snippet: String = ""
+    )
+
+    private const val KEY_GUARD_ACTIVITY_JSON = "guard_activity_log_json"
+    private const val GUARD_ACTIVITY_CAP = 20
+    private const val GUARD_ACTIVITY_PERSIST_MS = 5000L
+    private const val GUARD_ACTIVITY_SKIP_THROTTLE_MS = 30000L
+
+    private val guardActivityLock = Any()
+    private val guardActivityBuffer = ArrayDeque<GuardActivityEntry>()
+    @Volatile
+    private var lastActivityPersistMs = 0L
+    private val lastSkipLogMs = mutableMapOf<String, Long>()
+
+    private val _guardActivity = MutableStateFlow<List<GuardActivityEntry>>(emptyList())
+    val guardActivity: StateFlow<List<GuardActivityEntry>> = _guardActivity.asStateFlow()
+
+    /**
+     * Records one guard evaluation. Thread-safe; callable from the
+     * accessibility service's background paths.
+     */
+    fun logGuardActivity(
+        context: Context,
+        app: String,
+        stage: String,
+        verdict: String,
+        reason: String,
+        snippet: String = ""
+    ) {
+        try {
+            val entry = GuardActivityEntry(
+                ts = System.currentTimeMillis(),
+                app = app.take(32),
+                stage = stage.take(32),
+                verdict = verdict.take(16),
+                reason = reason.take(64),
+                snippet = snippet.take(60)
+            )
+            val snapshot: List<GuardActivityEntry>
+            synchronized(guardActivityLock) {
+                guardActivityBuffer.addLast(entry)
+                while (guardActivityBuffer.size > GUARD_ACTIVITY_CAP) guardActivityBuffer.removeFirst()
+                snapshot = guardActivityBuffer.toList()
+            }
+            _guardActivity.value = snapshot.asReversed()
+            val now = System.currentTimeMillis()
+            if (now - lastActivityPersistMs >= GUARD_ACTIVITY_PERSIST_MS) {
+                lastActivityPersistMs = now
+                try {
+                    context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+                        .edit()
+                        .putString(KEY_GUARD_ACTIVITY_JSON, json.encodeToString(snapshot))
+                        .apply()
+                } catch (_: Throwable) {}
+            }
+        } catch (_: Throwable) {}
+    }
+
+    /**
+     * Throttled skip logging: SKIPPED entries (not-study-period, title-null, …)
+     * can fire on every accessibility event, so at most one per app+stage+reason
+     * every 30s. Real evaluations are never throttled here.
+     */
+    fun logGuardSkip(
+        context: Context,
+        app: String,
+        stage: String,
+        reason: String
+    ) {
+        try {
+            val key = "$app|$stage|$reason"
+            val now = System.currentTimeMillis()
+            synchronized(guardActivityLock) {
+                val last = lastSkipLogMs[key] ?: 0L
+                if (now - last < GUARD_ACTIVITY_SKIP_THROTTLE_MS) return
+                lastSkipLogMs[key] = now
+                if (lastSkipLogMs.size > 60) lastSkipLogMs.clear()
+            }
+            logGuardActivity(context, app, stage, "SKIPPED", reason)
+        } catch (_: Throwable) {}
+    }
+
+    fun loadGuardActivity(context: Context) {
+        try {
+            val raw = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+                .getString(KEY_GUARD_ACTIVITY_JSON, null) ?: return
+            val list = json.decodeFromString<List<GuardActivityEntry>>(raw).take(GUARD_ACTIVITY_CAP)
+            synchronized(guardActivityLock) {
+                guardActivityBuffer.clear()
+                guardActivityBuffer.addAll(list)
+            }
+            _guardActivity.value = list.asReversed()
+        } catch (_: Throwable) {}
+    }
+
+    fun clearGuardActivity(context: Context) {
+        try {
+            synchronized(guardActivityLock) { guardActivityBuffer.clear() }
+            _guardActivity.value = emptyList()
+            context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).edit()
+                .remove(KEY_GUARD_ACTIVITY_JSON).apply()
+        } catch (_: Throwable) {}
     }
 
     fun openAccessibilitySettings(context: Context) {
