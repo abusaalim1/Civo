@@ -91,6 +91,11 @@ object EssentialAppsGuard {
         "com.simplemobiletools.gallery",
         "com.simplemobiletools.gallery.pro",
 
+        // YouTube & YouTube Music (Never Blocked - monitored by AI Guard instead)
+        "com.google.android.youtube",
+        "com.google.android.apps.youtube.music",
+        "com.google.android.apps.youtube.kids",
+
         // Device Settings (Never Blocked)
         "com.android.settings",
         "com.google.android.settings",
