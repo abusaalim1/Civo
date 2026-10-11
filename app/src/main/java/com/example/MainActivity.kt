@@ -35,6 +35,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.service.FocusShieldService
 import com.example.ui.components.GuardRetoggleDialog
+import com.example.ui.components.CrashReportDialog
+import com.example.FocuslyApplication
 import com.example.ui.components.AlarmHubSheet
 import com.example.ui.components.AlarmRingingOverlay
 import com.example.ui.components.BlockShieldOverlay
@@ -252,6 +254,18 @@ fun FocuslyApp(viewModel: FocuslyViewModel) {
         val ackVc = prefs.getInt("guard_config_ack_vc", 0)
         if (com.example.BuildConfig.VERSION_CODE > ackVc) {
             showGuardRetoggle = true
+        }
+    }
+
+    // v1.1.2: if the previous run crashed, the Application's crash reporter
+    // saved the stack trace — show it with a Copy button, then clear it.
+    var crashReportText by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(Unit) {
+        crashReportText = try {
+            val f = java.io.File(appContext.filesDir, FocuslyApplication.CRASH_LOG_FILE)
+            if (f.exists()) f.readText().take(15000).ifBlank { null } else null
+        } catch (_: Throwable) {
+            null
         }
     }
 
@@ -692,6 +706,26 @@ fun FocuslyApp(viewModel: FocuslyViewModel) {
                 if (isAiGuardHubOpen) {
                     com.example.ui.components.AiStudyGuardHubSheet(
                         onDismiss = { viewModel.closeAiGuardHub() }
+                    )
+                }
+
+                // v1.1.2: crash report from the previous run (copy & send for debugging)
+                val crashText = crashReportText
+                if (crashText != null) {
+                    CrashReportDialog(
+                        crashText = crashText,
+                        onCopy = {
+                            try {
+                                val cm = appContext.getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+                                cm.setPrimaryClip(android.content.ClipData.newPlainText("Focivo crash log", crashText))
+                            } catch (_: Throwable) { }
+                        },
+                        onDismiss = {
+                            try {
+                                java.io.File(appContext.filesDir, FocuslyApplication.CRASH_LOG_FILE).delete()
+                            } catch (_: Throwable) { }
+                            crashReportText = null
+                        }
                     )
                 }
 

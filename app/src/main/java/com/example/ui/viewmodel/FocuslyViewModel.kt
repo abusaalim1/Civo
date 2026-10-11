@@ -568,6 +568,21 @@ class FocuslyViewModel(application: Application) : AndroidViewModel(application)
 
     init {
         viewModelScope.launch {
+            try {
+                coldStartInit()
+            } catch (t: Throwable) {
+                // v1.1.2: NO single failing subsystem may kill the app at launch.
+                Log.e(TAG, "Cold-start init failed (guarded, app continues): ${t.message}", t)
+                try { _isAuthChecking.value = false } catch (_: Throwable) {}
+            }
+        }
+    }
+
+    /**
+     * v1.1.2: entire cold-start sequence (timer restore, alarms, schedules,
+     * auth/session restore, repository) runs guarded — see init above.
+     */
+    private suspend fun coldStartInit() {
             val app = getApplication<Application>()
             com.example.util.AiStudyGuardManager.init(app)
             com.example.util.DeepFocusManager.init(app)
@@ -674,7 +689,6 @@ class FocuslyViewModel(application: Application) : AndroidViewModel(application)
             }
             startAlarmChecker()
             refreshInstalledApps()
-        }
     }
 
     suspend fun restoreUserAccount(restoredUid: String) {
@@ -2112,7 +2126,30 @@ class FocuslyViewModel(application: Application) : AndroidViewModel(application)
         return restored
     }
 
+    /**
+     * v1.1.2: fully guarded. On ANY failure the stale timer flags are cleared
+     * so a crashing restore can never loop-crash the app on every launch.
+     */
     private fun performTimerRestore(): Boolean {
+        return try {
+            performTimerRestoreUnsafe()
+        } catch (t: Throwable) {
+            Log.e(TAG, "Timer restore failed (guarded); clearing stale flags: ${t.message}", t)
+            try {
+                val app = getApplication<Application>()
+                app.getSharedPreferences("focusly_local_data", Context.MODE_PRIVATE).edit()
+                    .putBoolean("is_manual_timer_running", false)
+                    .putLong("manual_timer_end_time_ms", 0L)
+                    .apply()
+                app.getSharedPreferences("focusly_timer_state", Context.MODE_PRIVATE).edit()
+                    .putBoolean("is_timer_running", false)
+                    .apply()
+            } catch (_: Throwable) {}
+            false
+        }
+    }
+
+    private fun performTimerRestoreUnsafe(): Boolean {
         val app = getApplication<Application>()
         val prefs = app.getSharedPreferences("focusly_local_data", Context.MODE_PRIVATE)
         val tPrefs = app.getSharedPreferences("focusly_timer_state", Context.MODE_PRIVATE)
@@ -2150,8 +2187,8 @@ class FocuslyViewModel(application: Application) : AndroidViewModel(application)
                 } else {
                     app.startService(timerIntent)
                 }
-            } catch (_: Exception) {}
-            try { com.example.widget.FocivoWidgetHelper.updateAllWidgets(app) } catch (_: Exception) {}
+            } catch (_: Throwable) {}
+            try { com.example.widget.FocivoWidgetHelper.updateAllWidgets(app) } catch (_: Throwable) {}
             Log.i(TAG, "[TimerRestore] Restored running timer with $remSec s remaining")
             return true
         }

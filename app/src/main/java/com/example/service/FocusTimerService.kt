@@ -77,6 +77,17 @@ class FocusTimerService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        return try {
+            onStartCommandUnsafe(intent, flags, startId)
+        } catch (t: Throwable) {
+            // v1.1.2: a service crash kills the WHOLE app process — never let it propagate.
+            Log.e(TAG, "onStartCommand failed (guarded): ${t.message}", t)
+            try { stopSelf() } catch (_: Throwable) {}
+            START_NOT_STICKY
+        }
+    }
+
+    private fun onStartCommandUnsafe(intent: Intent?, flags: Int, startId: Int): Int {
         val action = intent?.action
 
         if (action == ACTION_STOP_TIMER) {
@@ -119,7 +130,15 @@ class FocusTimerService : Service() {
 
         persistTimerPrefs(endTimeMs, targetSeconds, taskTitle, mode)
         val remainingSec = ((endTimeMs - now) / 1000L).toInt()
-        safeStartForeground(buildTimerNotification(remainingSec, taskTitle))
+        // v1.1.2: if we cannot reach foreground state, stop quietly NOW.
+        // Letting the system time-out a startForegroundService() call kills the
+        // entire app process (ForegroundServiceDidNotStartInTimeException).
+        val fgOk = safeStartForeground(buildTimerNotificationSafe(remainingSec, taskTitle))
+        if (!fgOk) {
+            Log.e(TAG, "Could not enter foreground state; stopping service quietly")
+            stopSelf()
+            return START_NOT_STICKY
+        }
         startTicker(endTimeMs, targetSeconds, taskTitle, mode)
         return START_STICKY
     }
@@ -257,7 +276,12 @@ class FocusTimerService : Service() {
         } catch (_: Exception) {}
     }
 
-    private fun safeStartForeground(notification: Notification) {
+    /**
+     * v1.1.2: returns true only if the service actually reached foreground state.
+     * A false return means the caller must stopSelf() immediately — otherwise the
+     * system kills the whole app process a few seconds later.
+     */
+    private fun safeStartForeground(notification: Notification): Boolean {
         try {
             createNotificationChannel()
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
@@ -265,11 +289,32 @@ class FocusTimerService : Service() {
             } else {
                 startForeground(NOTIFICATION_ID, notification)
             }
+            return true
         } catch (e: Throwable) {
-            Log.e(TAG, "safeStartForeground failed: ${e.message}")
-            try {
-                startForeground(NOTIFICATION_ID, notification)
-            } catch (_: Throwable) {}
+            Log.e(TAG, "safeStartForeground typed failed: ${e.message}")
+        }
+        // Fallback: untyped startForeground (for odd OEM builds).
+        return try {
+            startForeground(NOTIFICATION_ID, notification)
+            true
+        } catch (e: Throwable) {
+            Log.e(TAG, "safeStartForeground untyped failed: ${e.message}")
+            false
+        }
+    }
+
+    /** v1.1.2: notification build can never throw — minimal fallback included. */
+    private fun buildTimerNotificationSafe(remainingSec: Int, taskTitle: String): Notification {
+        return try {
+            buildTimerNotification(remainingSec, taskTitle)
+        } catch (t: Throwable) {
+            Log.e(TAG, "buildTimerNotification failed, using fallback: ${t.message}")
+            NotificationCompat.Builder(this, CHANNEL_ID)
+                .setSmallIcon(android.R.drawable.ic_dialog_info)
+                .setContentTitle("Focus Session")
+                .setContentText("Timer running")
+                .setOngoing(true)
+                .build()
         }
     }
 

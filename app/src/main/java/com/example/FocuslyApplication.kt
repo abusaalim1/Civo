@@ -10,8 +10,13 @@ import com.example.util.AppDailyLimitsManager
 
 class FocuslyApplication : Application() {
 
+    companion object {
+        const val CRASH_LOG_FILE = "crash_log.txt"
+    }
+
     override fun onCreate() {
         super.onCreate()
+        installCrashReporter()
         try {
             SupabaseManager.initialize(this)
         } catch (e: Throwable) {
@@ -66,5 +71,52 @@ class FocuslyApplication : Application() {
             Log.e("FocuslyApplication", "Failed to initialize ScheduledBlockScheduler: ${e.message}", e)
         }
     }
-}
 
+    /**
+     * v1.1.2: remote-debugging aid. Any uncaught exception (which would kill the
+     * app) is first written to a private file with device + version info. On the
+     * NEXT launch the app shows the log in a dialog with a Copy button so the
+     * owner can paste the exact crash. The handler itself can never throw, and
+     * the previous system handler is always chained so the crash still behaves
+     * normally for the OS.
+     */
+    private fun installCrashReporter() {
+        val previous = Thread.getDefaultUncaughtExceptionHandler()
+        Thread.setDefaultUncaughtExceptionHandler { thread, throwable ->
+            try {
+                val sw = java.io.StringWriter()
+                try {
+                    throwable.printStackTrace(java.io.PrintWriter(sw))
+                } catch (_: Throwable) { }
+                val stack = sw.toString().ifBlank {
+                    try { android.util.Log.getStackTraceString(throwable) } catch (_: Throwable) { "n/a" }
+                }
+                val report = buildString {
+                    appendLine("time=" + try {
+                        java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss", java.util.Locale.US)
+                            .format(java.util.Date())
+                    } catch (_: Throwable) { "n/a" })
+                    appendLine("app=Focivo " + try {
+                        "${com.example.BuildConfig.VERSION_NAME} (${com.example.BuildConfig.VERSION_CODE})"
+                    } catch (_: Throwable) { "n/a" })
+                    appendLine("device=" + try {
+                        "${android.os.Build.MANUFACTURER} ${android.os.Build.MODEL} sdk=${android.os.Build.VERSION.SDK_INT}"
+                    } catch (_: Throwable) { "n/a" })
+                    appendLine("thread=" + try { thread.name } catch (_: Throwable) { "n/a" })
+                    appendLine("---- stack ----")
+                    appendLine(stack)
+                }
+                // Keep only the latest crash (overwrite).
+                java.io.File(filesDir, CRASH_LOG_FILE).writeText(report.take(20000))
+            } catch (_: Throwable) {
+                // The reporter itself must never throw.
+            }
+            try {
+                previous?.uncaughtException(thread, throwable)
+            } catch (_: Throwable) { }
+            if (previous == null) {
+                try { android.os.Process.killProcess(android.os.Process.myPid()) } catch (_: Throwable) { }
+            }
+        }
+    }
+}
