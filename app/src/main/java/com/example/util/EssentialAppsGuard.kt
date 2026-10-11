@@ -91,18 +91,23 @@ object EssentialAppsGuard {
         "com.simplemobiletools.gallery",
         "com.simplemobiletools.gallery.pro",
 
-        // YouTube & YouTube Music
-        "com.google.android.youtube",
-        "com.google.android.apps.youtube.music",
-        "com.google.android.apps.youtube.kids",
+        // Device Settings (Never Blocked)
+        "com.android.settings",
+        "com.google.android.settings",
+        "com.samsung.android.settings",
+        "com.miui.securitycenter",
+        "com.coloros.safecenter",
+        "com.oppo.safe",
+        "com.vivo.safecenter",
 
-        // Payment, UPI & Banking Apps (Never Blocked)
+        // Payment, UPI & Banking Apps (Never Blocked - PhonePe, Paytm, PayPal, FamPay, GPay, Banks)
         "com.paypal.android.p2pmobile",
         "net.one97.paytm",
         "com.phonepe.app",
-        "com.google.android.apps.nbu.paisa.user",
+        "com.fampay.in", // FamPay
+        "com.google.android.apps.nbu.paisa.user", // Google Pay
         "com.google.android.apps.walletnfcrel",
-        "in.org.npci.upiapp",
+        "in.org.npci.upiapp", // BHIM UPI
         "com.dreamplug.androidapp", // Cred
         "com.mobikwik_new",
         "org.altruist.BharatPe",
@@ -159,7 +164,7 @@ object EssentialAppsGuard {
         // 2. Direct package lookup
         if (PERMANENTLY_PROTECTED_PACKAGES.contains(lower)) return true
 
-        // 3. Safety package name heuristic checks (Launchers, System UI, Calls, Banking)
+        // 3. Safety package name heuristic checks (Launchers, System UI, Calls, Banking, Settings)
         if (lower.contains("launcher") ||
             lower.contains("systemui") ||
             lower.contains("dialer") ||
@@ -173,11 +178,14 @@ object EssentialAppsGuard {
             lower.contains("paytm") ||
             lower.contains("phonepe") ||
             lower.contains("paypal") ||
+            lower.contains("fampay") ||
             lower.contains("paisa") ||
             lower.contains(".bank") ||
             lower.contains("banking") ||
             lower.contains("upi") ||
             lower.contains("wallet") ||
+            lower.contains(".settings") ||
+            lower == "com.android.settings" ||
             lower.contains("deskclock") ||
             lower.contains("clockpackage") ||
             lower.contains("calculator") ||

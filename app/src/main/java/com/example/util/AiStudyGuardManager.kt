@@ -225,10 +225,11 @@ object AiStudyGuardManager {
     }
 
     fun isAnyPunishmentActive(context: Context): Boolean {
-        return isAppUnderPunishment(context, "com.openai.chatgpt") ||
-                isAppUnderPunishment(context, "com.anthropic.claude") ||
-                isAppUnderPunishment(context, "com.google.android.youtube") ||
-                isAppUnderPunishment(context, "com.instagram.android")
+        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        val now = System.currentTimeMillis()
+        return prefs.all.any { (key, value) ->
+            key.startsWith(KEY_PUNISHMENT_PREFIX) && (value as? Long ?: 0L) > now
+        }
     }
 
     fun getPunishmentRemainingSeconds(context: Context, packageName: String): Int {

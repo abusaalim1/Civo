@@ -537,6 +537,108 @@ class AiStudyAccessibilityService : AccessibilityService() {
                 return
             }
 
+            // 10. Web Browser & General Screen Content AI Guard (Chrome, Firefox, Edge, Brave, Opera, Samsung Internet)
+            // Active ONLY when Study Guard is armed and an active study session or timer is running!
+            val lowerPkg = pkg.lowercase(Locale.ROOT)
+            val isBrowser = lowerPkg == "com.android.chrome" ||
+                    lowerPkg == "org.mozilla.firefox" ||
+                    lowerPkg == "com.microsoft.emmx" ||
+                    lowerPkg == "com.brave.browser" ||
+                    lowerPkg == "com.opera.browser" ||
+                    lowerPkg == "com.sec.android.app.sbrowser" ||
+                    lowerPkg.contains("browser")
+
+            if (isBrowser && isStudyPeriod && AiStudyGuardManager.isAiGuardEnabled(applicationContext) &&
+                (isWindowStateChanged || eventType == AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED)
+            ) {
+                val lastScan = lastAiChatScanMs[pkg] ?: 0L
+                if (nowTime - lastScan >= 2000L) {
+                    lastAiChatScanMs[pkg] = nowTime
+                    val rootNode = rootInActiveWindow
+                    if (rootNode != null) {
+                        try {
+                            val extraction = extractGeneralScreenContent(rootNode)
+                            val combinedKey = "${extraction.screenTitle ?: ""}|${extraction.urlOrContext ?: ""}|${extraction.textSnippets.take(3).joinToString(",")}"
+                            val signature = "$pkg:$combinedKey"
+                            val lastEval = lastEvaluatedScreenSignatures[signature] ?: 0L
+
+                            if (nowTime - lastEval >= 15_000L && (extraction.screenTitle != null || extraction.textSnippets.isNotEmpty())) {
+                                lastEvaluatedScreenSignatures[signature] = nowTime
+                                if (lastEvaluatedScreenSignatures.size > 100) {
+                                    val cutoff = nowTime - 60_000L
+                                    lastEvaluatedScreenSignatures.entries.removeIf { it.value < cutoff }
+                                }
+
+                                val browserLabel = guardMonitoredLabel(pkg) ?: "Browser"
+                                val urlOrTitle = extraction.urlOrContext ?: extraction.screenTitle ?: ""
+
+                                // Check for web-based AI chats (ChatGPT web, Claude web, Perplexity web) in browser
+                                val lowerUrlOrTitle = urlOrTitle.lowercase(Locale.ROOT)
+                                val isWebAiChat = lowerUrlOrTitle.contains("chatgpt.com") ||
+                                        lowerUrlOrTitle.contains("chat.openai.com") ||
+                                        lowerUrlOrTitle.contains("claude.ai") ||
+                                        lowerUrlOrTitle.contains("perplexity.ai") ||
+                                        lowerUrlOrTitle.contains("gemini.google.com")
+
+                                // Evaluate with on-device heuristics first
+                                val quickScreen = GeminiContentClassifier.quickEvaluateScreen(
+                                    packageName = pkg,
+                                    appName = browserLabel,
+                                    screenTitle = extraction.screenTitle,
+                                    visibleSnippets = extraction.textSnippets
+                                )
+
+                                if (quickScreen.isDistraction) {
+                                    Log.w(TAG, "[Browser AI Guard] Distraction detected on-device in $browserLabel: ${quickScreen.reason}")
+                                    AiStudyGuardManager.logGuardActivity(applicationContext, browserLabel, "browser-ondevice", "NON_STUDY", quickScreen.reason.take(64), urlOrTitle)
+                                    AiStudyGuardManager.onNonStudyDetected(
+                                        context = applicationContext,
+                                        packageName = pkg,
+                                        messageText = urlOrTitle.ifBlank { extraction.textSnippets.firstOrNull() ?: "" },
+                                        reason = quickScreen.reason
+                                    )
+                                } else if (quickScreen.confidence < 0.90f) {
+                                    // Ambient screen check with Gemini
+                                    serviceScope.launch {
+                                        try {
+                                            val gv = GeminiContentClassifier.evaluateScreenWithGemini(
+                                                packageName = pkg,
+                                                appName = browserLabel,
+                                                screenTitle = extraction.screenTitle,
+                                                visibleSnippets = extraction.textSnippets,
+                                                metadata = extraction.urlOrContext
+                                            )
+                                            if (gv.isDistraction || !gv.isStudyAllowed) {
+                                                Log.w(TAG, "[Gemini Screen Guard] Distraction confirmed in $browserLabel: ${gv.reason}")
+                                                AiStudyGuardManager.logGuardActivity(applicationContext, browserLabel, "screen-gemini", "NON_STUDY", gv.reason.take(64), urlOrTitle)
+                                                AiStudyGuardManager.onNonStudyDetected(
+                                                    context = applicationContext,
+                                                    packageName = pkg,
+                                                    messageText = urlOrTitle.ifBlank { extraction.textSnippets.firstOrNull() ?: "" },
+                                                    reason = gv.reason
+                                                )
+                                            } else {
+                                                AiStudyGuardManager.logGuardActivity(applicationContext, browserLabel, "screen-gemini", "STUDY", "gemini-allow", urlOrTitle)
+                                                AiStudyGuardManager.onStudyActivityDetected(
+                                                    context = applicationContext,
+                                                    packageName = pkg,
+                                                    messageText = urlOrTitle
+                                                )
+                                            }
+                                        } catch (t: Throwable) {
+                                            Log.w(TAG, "Gemini screen analysis exception: ${t.message}")
+                                        }
+                                    }
+                                }
+                            }
+                        } finally {
+                            try { rootNode.recycle() } catch (_: Exception) {}
+                        }
+                    }
+                }
+                return
+            }
+
             // Unblocked apps are NEVER intercepted or blocked! They open and function 100% freely.
         } catch (t: Throwable) {
             Log.e(TAG, "Error in onAccessibilityEvent: ${t.message}", t)
@@ -739,13 +841,18 @@ class AiStudyAccessibilityService : AccessibilityService() {
      * belongs to.
      */
     private fun guardMonitoredLabel(pkg: String): String? {
+        val lower = pkg.lowercase(Locale.ROOT)
         return when {
-            pkg == "com.google.android.youtube" || pkg.contains("youtube", ignoreCase = true) -> "YouTube"
-            pkg == "com.openai.chatgpt" || pkg.contains("chatgpt", ignoreCase = true) || pkg.contains("openai", ignoreCase = true) -> "ChatGPT"
-            pkg.contains("claude", ignoreCase = true) || pkg.contains("anthropic", ignoreCase = true) -> "Claude"
-            pkg.contains("perplexity", ignoreCase = true) -> "Perplexity"
-            pkg.contains("copilot", ignoreCase = true) -> "Copilot"
-            pkg.contains("bard", ignoreCase = true) -> "Gemini"
+            lower == "com.google.android.youtube" || lower.contains("youtube") -> "YouTube"
+            lower == "com.instagram.android" || lower.contains("instagram") -> "Instagram"
+            lower == "com.openai.chatgpt" || lower.contains("chatgpt") || lower.contains("openai") -> "ChatGPT"
+            lower.contains("claude") || lower.contains("anthropic") -> "Claude"
+            lower.contains("perplexity") -> "Perplexity"
+            lower.contains("copilot") -> "Copilot"
+            lower.contains("bard") -> "Gemini"
+            lower.contains("chrome") -> "Chrome"
+            lower.contains("firefox") -> "Firefox"
+            lower.contains("browser") || lower.contains("brave") || lower.contains("opera") -> "Browser"
             else -> null
         }
     }
