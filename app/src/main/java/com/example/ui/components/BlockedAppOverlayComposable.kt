@@ -13,6 +13,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -32,6 +33,7 @@ import androidx.compose.material.icons.filled.HourglassTop
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.SelfImprovement
 import androidx.compose.material.icons.filled.Shield
+import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
@@ -178,15 +180,16 @@ fun BlockedAppOverlay(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.Center
             ) {
-                // Top Mascot section (enlarged & prominent as shown in the reference image)
+                // Top Mascot section — transparent PNG floats cleanly on the card
+                // gradient with a soft radial glow behind it (no black box).
                 Box(
                     contentAlignment = Alignment.Center,
-                    modifier = Modifier.size(152.dp)
+                    modifier = Modifier.size(164.dp)
                 ) {
                     // Glow radial background
                     Box(
                         modifier = Modifier
-                            .size(140.dp)
+                            .size(150.dp)
                             .scale(pulseScale)
                             .clip(CircleShape)
                             .background(
@@ -196,12 +199,12 @@ fun BlockedAppOverlay(
                             )
                     )
 
-                    // Mascot Image (Clear, well-proportioned size)
+                    // Mascot Image (transparent, well-proportioned)
                     Image(
                         painter = painterResource(id = mascotRes),
                         contentDescription = "Focus Mascot",
                         modifier = Modifier
-                            .size(136.dp)
+                            .size(146.dp)
                             .scale(pulseScale),
                         contentScale = ContentScale.Fit
                     )
@@ -271,37 +274,98 @@ fun BlockedAppOverlay(
 
                 Spacer(modifier = Modifier.height(6.dp))
 
-                // Subtitle / Reason strictly inside box
-                Text(
-                    text = reason ?: "$appName is locked during your active focus session.",
-                    style = MaterialTheme.typography.bodyMedium.copy(
-                        color = Color(0xFFA5B4A3),
+                // Reason / warning text — rendered as structured paragraphs:
+                // a leading "⚠️ ..." paragraph becomes a crisp icon + text header
+                // row (no orphan emoji wrap); the rest are clean centered body
+                // lines with comfortable line height.
+                val reasonParagraphs = remember(reason, appName) {
+                    (reason ?: "$appName is locked during your active focus session.")
+                        .split("\n\n")
+                        .map { it.trim() }
+                        .filter { it.isNotEmpty() }
+                }
+                val firstPara = reasonParagraphs.firstOrNull().orEmpty()
+                val hasWarningHeader = firstPara.startsWith("⚠️")
+                val headerText = if (hasWarningHeader) firstPara.removePrefix("⚠️").trim() else firstPara
+                val bodyParas = if (reasonParagraphs.size > 1) reasonParagraphs.drop(1) else emptyList()
+
+                if (hasWarningHeader) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 10.dp),
+                        horizontalArrangement = Arrangement.Center,
+                        verticalAlignment = Alignment.Top
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Warning,
+                            contentDescription = null,
+                            tint = Color(0xFFFFC93C),
+                            modifier = Modifier
+                                .padding(top = 2.dp)
+                                .size(16.dp)
+                        )
+                        Spacer(modifier = Modifier.width(7.dp))
+                        Text(
+                            text = headerText,
+                            color = Color(0xFFE9F1E7),
+                            fontSize = 13.5.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            lineHeight = 19.sp,
+                            textAlign = TextAlign.Start,
+                            modifier = Modifier.weight(1f, fill = false)
+                        )
+                    }
+                    if (bodyParas.isNotEmpty()) Spacer(modifier = Modifier.height(10.dp))
+                } else if (headerText.isNotEmpty()) {
+                    Text(
+                        text = headerText,
+                        style = MaterialTheme.typography.bodyMedium.copy(
+                            color = Color(0xFFA5B4A3),
+                            fontSize = 13.sp,
+                            lineHeight = 19.sp
+                        ),
+                        textAlign = TextAlign.Center,
+                        modifier = Modifier.padding(horizontal = 6.dp)
+                    )
+                    if (bodyParas.isNotEmpty()) Spacer(modifier = Modifier.height(10.dp))
+                }
+
+                bodyParas.forEachIndexed { index, para ->
+                    Text(
+                        text = para,
+                        color = Color(0xFFB7C6B4),
                         fontSize = 13.sp,
-                        lineHeight = 18.sp
-                    ),
-                    textAlign = TextAlign.Center,
-                    modifier = Modifier.padding(horizontal = 6.dp)
-                )
+                        fontWeight = FontWeight.Normal,
+                        lineHeight = 20.sp,
+                        textAlign = TextAlign.Center,
+                        modifier = Modifier.padding(horizontal = 10.dp)
+                    )
+                    if (index < bodyParas.lastIndex) Spacer(modifier = Modifier.height(10.dp))
+                }
 
                 Spacer(modifier = Modifier.height(16.dp))
 
-                // Countdown Timer Box (Inner Card)
+                // Countdown Timer Box (Inner Card) — one clean centered card:
+                // label, big time, and hint all explicitly centered.
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
                         .clip(RoundedCornerShape(20.dp))
                         .background(Color(0xFF131C15))
                         .border(1.dp, Color(0x22FFFFFF), RoundedCornerShape(20.dp))
-                        .padding(vertical = 14.dp, horizontal = 16.dp),
+                        .padding(vertical = 16.dp, horizontal = 16.dp),
                     contentAlignment = Alignment.Center
                 ) {
                     Column(
                         horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.spacedBy(3.dp)
+                        verticalArrangement = Arrangement.spacedBy(4.dp),
+                        modifier = Modifier.fillMaxWidth()
                     ) {
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(5.dp)
+                            horizontalArrangement = Arrangement.Center,
+                            modifier = Modifier.fillMaxWidth()
                         ) {
                             Icon(
                                 imageVector = Icons.Default.HourglassTop,
@@ -309,29 +373,34 @@ fun BlockedAppOverlay(
                                 tint = Color(0xFF7E8F7F),
                                 modifier = Modifier.size(12.dp)
                             )
+                            Spacer(modifier = Modifier.width(5.dp))
                             Text(
                                 text = "LOCK TIME REMAINING",
                                 color = Color(0xFF7E8F7F),
                                 fontSize = 9.5.sp,
                                 fontWeight = FontWeight.Bold,
-                                letterSpacing = 1.sp
+                                letterSpacing = 1.2.sp,
+                                textAlign = TextAlign.Center
                             )
                         }
-
-                        Spacer(modifier = Modifier.height(2.dp))
 
                         Text(
                             text = timeFormatted,
                             color = accentColor,
                             fontSize = 34.sp,
                             fontWeight = FontWeight.Black,
-                            letterSpacing = 1.5.sp
+                            letterSpacing = 1.5.sp,
+                            textAlign = TextAlign.Center,
+                            modifier = Modifier.fillMaxWidth()
                         )
 
                         Text(
                             text = if (remainingSeconds > 0) "Unlocks automatically when focus ends" else "Session finished!",
                             color = Color(0xFF90A191),
-                            fontSize = 11.5.sp
+                            fontSize = 11.5.sp,
+                            lineHeight = 16.sp,
+                            textAlign = TextAlign.Center,
+                            modifier = Modifier.fillMaxWidth()
                         )
                     }
                 }
@@ -343,16 +412,18 @@ fun BlockedAppOverlay(
                     onClick = onExitApp,
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(50.dp),
+                        .height(52.dp),
                     shape = RoundedCornerShape(16.dp),
                     colors = ButtonDefaults.buttonColors(
                         containerColor = accentColor,
                         contentColor = NearBlack
-                    )
+                    ),
+                    contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp)
                 ) {
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.Center
+                        horizontalArrangement = Arrangement.Center,
+                        modifier = Modifier.fillMaxWidth()
                     ) {
                         Icon(
                             imageVector = Icons.AutoMirrored.Filled.ArrowBack,
@@ -365,19 +436,20 @@ fun BlockedAppOverlay(
                             text = "Exit App & Resume Study",
                             fontWeight = FontWeight.Bold,
                             fontSize = 14.sp,
-                            color = NearBlack
+                            color = NearBlack,
+                            maxLines = 1
                         )
                     }
                 }
 
-                Spacer(modifier = Modifier.height(10.dp))
+                Spacer(modifier = Modifier.height(12.dp))
 
                 // Secondary Focusly Button
                 OutlinedButton(
                     onClick = onOpenFocusly,
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(48.dp),
+                        .height(52.dp),
                     shape = RoundedCornerShape(16.dp),
                     colors = ButtonDefaults.outlinedButtonColors(
                         containerColor = Color(0xFF131C15),
@@ -387,11 +459,13 @@ fun BlockedAppOverlay(
                         brush = Brush.horizontalGradient(
                             listOf(Color(0x35FFFFFF), Color(0x18FFFFFF))
                         )
-                    )
+                    ),
+                    contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp)
                 ) {
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.Center
+                        horizontalArrangement = Arrangement.Center,
+                        modifier = Modifier.fillMaxWidth()
                     ) {
                         Icon(
                             imageVector = Icons.Default.SelfImprovement,
@@ -404,7 +478,8 @@ fun BlockedAppOverlay(
                             text = "Open Focivo App",
                             fontSize = 13.5.sp,
                             fontWeight = FontWeight.SemiBold,
-                            color = Color(0xFFF1F5F9)
+                            color = Color(0xFFF1F5F9),
+                            maxLines = 1
                         )
                     }
                 }

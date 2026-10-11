@@ -73,8 +73,8 @@ class BlockedAppLockActivity : ComponentActivity() {
         setContent {
             FocuslyTheme {
                 val mascotRes = when {
-                    guardVariantState.value == GUARD_VARIANT_WARNING -> com.example.R.drawable.mascot_warning
-                    isPunishmentState.value -> com.example.R.drawable.mascot_guard
+                    guardVariantState.value == GUARD_VARIANT_WARNING -> com.example.R.drawable.mascot_warning_transparent
+                    isPunishmentState.value -> com.example.R.drawable.mascot_guard_transparent
                     else -> com.example.R.drawable.mascot_blocked
                 }
                 BlockedAppOverlay(
