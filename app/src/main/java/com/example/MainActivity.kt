@@ -34,7 +34,6 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.service.FocusShieldService
-import com.example.ui.components.GuardRetoggleDialog
 import com.example.ui.components.CrashReportDialog
 import com.example.FocuslyApplication
 import com.example.ui.components.AlarmHubSheet
@@ -244,21 +243,9 @@ fun FocuslyApp(viewModel: FocuslyViewModel) {
     val showSessionDonationPrompt by viewModel.showSessionDonationPrompt.collectAsState()
     val lastCompletedSessionForPrompt by viewModel.lastCompletedSessionForPrompt.collectAsState()
 
-    // One-time prompt after updates that changed the accessibility service config:
-    // Android caches the config at enable time, so the new AI Guard only works
-    // after the user toggles the service OFF and ON once.
-    val appContext = LocalContext.current
-    var showGuardRetoggle by remember { mutableStateOf(false) }
-    LaunchedEffect(Unit) {
-        val prefs = appContext.getSharedPreferences("focusly_local_data", Context.MODE_PRIVATE)
-        val ackVc = prefs.getInt("guard_config_ack_vc", 0)
-        if (com.example.BuildConfig.VERSION_CODE > ackVc) {
-            showGuardRetoggle = true
-        }
-    }
-
     // v1.1.2: if the previous run crashed, the Application's crash reporter
     // saved the stack trace — show it with a Copy button, then clear it.
+    val appContext = LocalContext.current
     var crashReportText by remember { mutableStateOf<String?>(null) }
     LaunchedEffect(Unit) {
         crashReportText = try {
@@ -330,7 +317,6 @@ fun FocuslyApp(viewModel: FocuslyViewModel) {
     LaunchedEffect(currentUser) {
         if (currentUser != null) {
             viewModel.checkWeeklyReview(context)
-            viewModel.checkForAppUpdates(context, isManual = false)
             if (!hasCheckedNotificationPermissionOnStartup) {
                 hasCheckedNotificationPermissionOnStartup = true
                 if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
@@ -351,6 +337,12 @@ fun FocuslyApp(viewModel: FocuslyViewModel) {
             android.widget.Toast.makeText(context, manualUpdateCheckResult, android.widget.Toast.LENGTH_SHORT).show()
             viewModel.clearManualUpdateMessage()
         }
+    }
+
+    // v1.1.3: automatic update check on cold start (once per 24h, non-blocking) —
+    // runs for guests too, not just logged-in users.
+    LaunchedEffect(Unit) {
+        viewModel.checkForAppUpdates(context, isManual = false)
     }
 
     // Screen navigation states
@@ -726,21 +718,6 @@ fun FocuslyApp(viewModel: FocuslyViewModel) {
                             } catch (_: Throwable) { }
                             crashReportText = null
                         }
-                    )
-                }
-
-                // One-time accessibility re-toggle prompt after guard config updates
-                if (showGuardRetoggle) {
-                    GuardRetoggleDialog(
-                        onOpenSettings = {
-                            appContext.getSharedPreferences("focusly_local_data", Context.MODE_PRIVATE)
-                                .edit()
-                                .putInt("guard_config_ack_vc", com.example.BuildConfig.VERSION_CODE)
-                                .apply()
-                            showGuardRetoggle = false
-                            AiStudyGuardManager.openAccessibilitySettings(appContext)
-                        },
-                        onLater = { showGuardRetoggle = false }
                     )
                 }
 

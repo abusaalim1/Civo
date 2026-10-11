@@ -37,7 +37,10 @@ data class AppUpdateInfo(
     val releaseNotes: String,
     val downloadUrl: String,
     val isForceUpdate: Boolean,
-    val isUpdateAvailable: Boolean
+    val isUpdateAvailable: Boolean,
+    // v1.1.3: false when the remote check itself failed (network/DB error).
+    // Callers must NEVER report "up to date" when this is false.
+    val checkSucceeded: Boolean = true
 )
 
 object AppUpdateManager {
@@ -46,6 +49,11 @@ object AppUpdateManager {
     private const val PREFS_NAME = "focivo_app_update_prefs"
     private const val KEY_LAST_CHECK_TIMESTAMP = "last_update_check_time"
     private const val KEY_DISMISSED_VERSION = "dismissed_version_code"
+    // v1.1.3: dismissal only suppresses the auto dialog for 24h so it re-shows
+    // on next launch/day instead of being hidden forever.
+    private const val KEY_DISMISSED_AT = "dismissed_version_at"
+    private const val CHECK_INTERVAL_MS = 24 * 60 * 60 * 1000L
+    private const val DISMISS_SUPPRESS_MS = 24 * 60 * 60 * 1000L
 
     private val httpClient by lazy {
         OkHttpClient.Builder()
@@ -76,8 +84,7 @@ object AppUpdateManager {
 
         if (!isManualCheck) {
             val lastCheck = prefs.getLong(KEY_LAST_CHECK_TIMESTAMP, 0L)
-            val fourHoursMs = 4 * 60 * 60 * 1000L
-            if (System.currentTimeMillis() - lastCheck < fourHoursMs) {
+            if (System.currentTimeMillis() - lastCheck < CHECK_INTERVAL_MS) {
                 return@withContext null
             }
         }
@@ -89,28 +96,38 @@ object AppUpdateManager {
 
         // 2. Fallback: Try public raw update metadata endpoint if Supabase is unavailable
         if (remoteDto == null) {
+            Log.w(TAG, "Primary app_updates query failed, trying HTTP fallback")
             remoteDto = fetchUpdateFromHttpFallback()
         }
 
         if (remoteDto == null) {
+            // v1.1.3: the check itself FAILED — never claim "up to date" here.
+            Log.w(TAG, "Update check failed: both primary and fallback queries returned nothing")
             return@withContext if (isManualCheck) {
                 AppUpdateInfo(
                     currentVersionCode = currentCode,
                     currentVersionName = currentName,
                     latestVersionCode = currentCode,
                     latestVersionName = currentName,
-                    releaseNotes = "You are on the latest version of Focivo.",
+                    releaseNotes = "",
                     downloadUrl = "",
                     isForceUpdate = false,
-                    isUpdateAvailable = false
+                    isUpdateAvailable = false,
+                    checkSucceeded = false
                 )
             } else null
         }
 
         val dismissedCode = prefs.getInt(KEY_DISMISSED_VERSION, 0)
+        val dismissedAt = prefs.getLong(KEY_DISMISSED_AT, 0L)
         val isUpdateAvailable = remoteDto.versionCode > currentCode
 
-        if (!isManualCheck && !remoteDto.isForceUpdate && remoteDto.versionCode <= dismissedCode) {
+        // Dismissal suppresses the auto dialog only for 24h; force updates
+        // always show; manual checks always report truthfully.
+        if (!isManualCheck && !remoteDto.isForceUpdate &&
+            remoteDto.versionCode <= dismissedCode &&
+            System.currentTimeMillis() - dismissedAt < DISMISS_SUPPRESS_MS
+        ) {
             return@withContext null
         }
 
@@ -185,7 +202,10 @@ object AppUpdateManager {
 
     fun dismissUpdate(context: Context, versionCode: Int) {
         val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-        prefs.edit().putInt(KEY_DISMISSED_VERSION, versionCode).apply()
+        prefs.edit()
+            .putInt(KEY_DISMISSED_VERSION, versionCode)
+            .putLong(KEY_DISMISSED_AT, System.currentTimeMillis())
+            .apply()
     }
 
     fun launchDownload(context: Context, downloadUrl: String) {

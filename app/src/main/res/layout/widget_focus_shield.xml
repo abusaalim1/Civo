@@ -35,7 +35,7 @@
                 android:letterSpacing="-0.01"
                 android:text="Focus Shield"
                 android:textColor="@color/focivo_text_primary"
-                android:textSize="13.5sp" />
+                android:textSize="13sp" />
 
             <TextView
                 android:id="@+id/widget_shield_mode_desc"
@@ -85,7 +85,7 @@
             android:fontFamily="@font/poppins_bold"
             android:text="🚫 0 Apps Blocked"
             android:textColor="@color/focivo_emerald"
-            android:textSize="13.5sp" />
+            android:textSize="13sp" />
 
         <TextView
             android:id="@+id/widget_shield_subtext"

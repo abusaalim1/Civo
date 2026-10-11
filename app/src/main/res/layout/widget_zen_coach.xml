@@ -35,7 +35,7 @@
                 android:letterSpacing="-0.01"
                 android:text="AI Study Companion"
                 android:textColor="@color/focivo_text_primary"
-                android:textSize="13.5sp" />
+                android:textSize="13sp" />
 
             <TextView
                 android:id="@+id/widget_zen_user_points"
@@ -87,7 +87,7 @@
             android:maxLines="2"
             android:text="&quot;Take a deep breath. 25 minutes of deep focus is better than 4 hours of distracted study 🧘&quot;"
             android:textColor="@color/focivo_text_secondary"
-            android:textSize="11.5sp" />
+            android:textSize="11sp" />
     </LinearLayout>
 
     <!-- Bottom Action Row -->

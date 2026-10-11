@@ -35,7 +35,7 @@
                 android:letterSpacing="-0.01"
                 android:text="Focivo Focus"
                 android:textColor="@color/focivo_text_primary"
-                android:textSize="13.5sp" />
+                android:textSize="13sp" />
 
             <TextView
                 android:id="@+id/widget_timer_task_title"

@@ -19,6 +19,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AccessibilityNew
+import androidx.compose.material.icons.filled.BatteryCharging
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Layers
 import androidx.compose.material.icons.filled.OpenInNew
@@ -75,6 +76,11 @@ fun FocusShieldPermissionSheet(
     var hasAccessibilityPermission by remember {
         mutableStateOf(FocusShieldPermissions.hasAccessibilityPermission(context))
     }
+    // v1.1.3: Battery optimization exemption — keeps the guard + timer alive
+    // on Xiaomi/Oppo/Vivo/Samsung which aggressively kill background services.
+    var hasBatteryExemption by remember {
+        mutableStateOf(com.example.util.PermissionUtils.isBatteryOptimizationDisabled(context))
+    }
 
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
@@ -82,6 +88,7 @@ fun FocusShieldPermissionSheet(
                 hasUsagePermission = FocusShieldPermissions.hasUsageStatsPermission(context)
                 hasOverlayPermission = FocusShieldPermissions.hasOverlayPermission(context)
                 hasAccessibilityPermission = FocusShieldPermissions.hasAccessibilityPermission(context)
+                hasBatteryExemption = com.example.util.PermissionUtils.isBatteryOptimizationDisabled(context)
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
@@ -90,7 +97,7 @@ fun FocusShieldPermissionSheet(
         }
     }
 
-    val isAllGranted = hasUsagePermission && hasOverlayPermission && hasAccessibilityPermission
+    val isAllGranted = hasUsagePermission && hasOverlayPermission && hasAccessibilityPermission && hasBatteryExemption
 
     val sheetBackground = Color(0xFF0C1017)
     val accentLime = RegainLimePrimary
@@ -146,7 +153,7 @@ fun FocusShieldPermissionSheet(
             Spacer(modifier = Modifier.height(6.dp))
 
             CivoChatBubble(
-                text = "Grant these 3 permissions so Focivo can detect distracting apps, block YouTube Shorts & Reels, and enforce Strict Study Mode!",
+                text = "Grant these permissions so Focivo can detect distracting apps, block YouTube Shorts & Reels, enforce Strict Study Mode, and keep the guard alive in the background!",
                 avatarSize = 42.dp,
                 typingSpeedMs = 20L
             )
@@ -196,6 +203,21 @@ fun FocusShieldPermissionSheet(
                 }
             )
 
+            Spacer(modifier = Modifier.height(12.dp))
+
+            // Permission 4: Battery Optimization Exemption (v1.1.3)
+            PermissionItemCard(
+                title = "4. Battery Optimization OFF",
+                description = if (hasBatteryExemption) "Granted · Guard & timer stay alive in background" else "Stops your phone from killing the AI Guard & timer in the background.",
+                isGranted = hasBatteryExemption,
+                icon = Icons.Default.BatteryCharging,
+                onClick = {
+                    if (!hasBatteryExemption) {
+                        com.example.util.PermissionUtils.openBatteryOptimizationSettings(context)
+                    }
+                }
+            )
+
             Spacer(modifier = Modifier.height(24.dp))
 
             // Action Button
@@ -208,6 +230,8 @@ fun FocusShieldPermissionSheet(
                         FocusShieldPermissions.openUsageAccessSettings(context)
                     } else if (!hasOverlayPermission) {
                         FocusShieldPermissions.openOverlaySettings(context)
+                    } else if (!hasBatteryExemption) {
+                        com.example.util.PermissionUtils.openBatteryOptimizationSettings(context)
                     } else {
                         FocusShieldPermissions.openAccessibilitySettings(context)
                     }

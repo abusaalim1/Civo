@@ -36,7 +36,7 @@
                 android:letterSpacing="-0.01"
                 android:text="🔥 1 DAY STREAK"
                 android:textColor="@color/focivo_orange"
-                android:textSize="14sp" />
+                android:textSize="13sp" />
 
             <TextView
                 android:id="@+id/widget_streak_level"
@@ -88,7 +88,7 @@
             android:maxLines="2"
             android:text="&quot;Every page studied today is a step towards your dream ✨&quot;"
             android:textColor="@color/focivo_text_secondary"
-            android:textSize="11.5sp" />
+            android:textSize="11sp" />
     </LinearLayout>
 
     <!-- Bottom: Today Study Goal Progress -->
@@ -119,7 +119,7 @@
                 android:fontFamily="@font/poppins_bold"
                 android:text="0 / 90m"
                 android:textColor="@color/focivo_text_primary"
-                android:textSize="11.5sp" />
+                android:textSize="11sp" />
         </LinearLayout>
 
         <ProgressBar

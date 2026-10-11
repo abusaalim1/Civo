@@ -9,6 +9,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -65,6 +66,8 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
@@ -77,6 +80,7 @@ import com.example.ui.components.MascotPose
 import com.example.ui.components.PreStudyAppBlockSheet
 import com.example.ui.components.RegainMascotView
 import com.example.ui.components.RegainStudyDial
+import com.example.R
 import com.example.ui.theme.MutedBorderLight
 import com.example.ui.theme.NearBlack
 import com.example.ui.theme.PoppinsFontFamily
@@ -306,9 +310,9 @@ fun FocusScreen(
                         Box(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .clip(RoundedCornerShape(12.dp))
+                                .clip(RoundedCornerShape(14.dp))
                                 .background(if (isDark) Color(0xFF3E2723) else Color(0xFFFFF3E0))
-                                .border(1.dp, if (isDark) Color(0xFFFFB74D).copy(alpha = 0.4f) else Color(0xFFFFB74D), RoundedCornerShape(12.dp))
+                                .border(1.dp, if (isDark) Color(0xFFFFB74D).copy(alpha = 0.4f) else Color(0xFFFFB74D), RoundedCornerShape(14.dp))
                                 .padding(horizontal = 12.dp, vertical = 8.dp)
                                 .testTag("session_protection_note")
                         ) {
@@ -503,14 +507,38 @@ fun FocusScreen(
                         modifier = Modifier
                             .fillMaxWidth()
                             .padding(top = 4.dp),
-                        horizontalArrangement = Arrangement.Center,
+                        horizontalArrangement = if (isRunning) Arrangement.Center else Arrangement.spacedBy(10.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
+                        // v1.1.3: AI Study Guard quick entry on the LEFT (idle only),
+                        // with the guard-pose mascot as its icon.
+                        if (!isRunning) {
+                            Box(
+                                modifier = Modifier
+                                    .size(56.dp)
+                                    .shadow(4.dp, CircleShape)
+                                    .clip(CircleShape)
+                                    .background(if (isDark) Color(0xFF1E2A1A) else Color.White)
+                                    .border(1.5.dp, RegainLimePrimary, CircleShape)
+                                    .clickable { onOpenAiGuardHub() }
+                                    .testTag("ai_guard_left_button"),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Image(
+                                    painter = painterResource(id = R.drawable.mascot_guard),
+                                    contentDescription = "Open AI Study Guard",
+                                    modifier = Modifier
+                                        .size(46.dp)
+                                        .clip(CircleShape),
+                                    contentScale = ContentScale.Crop
+                                )
+                            }
+                        }
                         // Main Study Action Button (Sizable, prominent pill)
                         Box(
                             modifier = Modifier
                                 .height(56.dp)
-                                .fillMaxWidth(if (isRunning) 0.72f else 0.85f)
+                                .then(if (isRunning) Modifier.fillMaxWidth(0.72f) else Modifier.weight(1f))
                                 .shadow(
                                     elevation = 6.dp,
                                     shape = CircleShape,

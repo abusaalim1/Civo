@@ -2946,19 +2946,25 @@ class FocuslyViewModel(application: Application) : AndroidViewModel(application)
             }
             try {
                 val updateInfo = com.example.util.AppUpdateManager.checkForUpdates(context, isManualCheck = isManual)
-                if (updateInfo != null && updateInfo.isUpdateAvailable) {
+                if (updateInfo != null && updateInfo.isUpdateAvailable && updateInfo.checkSucceeded) {
                     _availableAppUpdate.value = updateInfo
                     if (isManual) {
                         _manualUpdateCheckResult.value = "New version v${updateInfo.latestVersionName} is available!"
                     }
                 } else {
                     if (isManual) {
-                        _manualUpdateCheckResult.value = "Focivo is up to date (v${updateInfo?.currentVersionName ?: "1.0.0"})"
+                        _manualUpdateCheckResult.value = when {
+                            // v1.1.3: never claim "up to date" when the check itself failed
+                            updateInfo != null && !updateInfo.checkSucceeded ->
+                                "Couldn't check for updates — please try again."
+                            else ->
+                                "You're on the latest version (v${updateInfo?.currentVersionName ?: com.example.util.AppUpdateManager.getCurrentVersionInfo(context).second})"
+                        }
                     }
                 }
             } catch (e: Exception) {
                 if (isManual) {
-                    _manualUpdateCheckResult.value = "Check failed: ${e.localizedMessage ?: "Network error"}"
+                    _manualUpdateCheckResult.value = "Couldn't check for updates — please try again."
                 }
             } finally {
                 if (isManual) {
