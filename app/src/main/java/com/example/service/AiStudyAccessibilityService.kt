@@ -15,6 +15,7 @@ import com.example.util.GeminiContentClassifier
 import com.example.util.OnDeviceStudyClassifier
 import com.example.util.ShortsLockManager
 import com.example.util.StrictModeManager
+import com.example.util.StudyGuardKnowledge
 import com.example.util.YouTubeStudyGuardManager
 import com.example.util.YouTubeVideoClassifier
 import kotlinx.coroutines.CoroutineScope
