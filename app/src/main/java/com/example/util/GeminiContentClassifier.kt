@@ -472,6 +472,129 @@ object GeminiContentClassifier {
         return@withContext quick
     }
 
+    /**
+     * v1.1.6: Evaluates an AI-chat message with Gemini for ambiguous cases the
+     * on-device classifier could not decide ("benefit of doubt"). On-device stays
+     * the instant fast path; Gemini is the tie-breaker so natural Hinglish /
+     * casual chat that matches no keyword is still judged by real AI.
+     */
+    suspend fun evaluateChatMessageWithGemini(
+        message: String,
+        appName: String
+    ): ContentVerdict = withContext(Dispatchers.IO) {
+        val cacheKey = "chat|${message.trim().lowercase(Locale.ROOT).hashCode()}"
+        val cached = classificationCache.get(cacheKey)
+        if (cached != null) {
+            return@withContext cached
+        }
+
+        val apiKey = try {
+            BuildConfig.GEMINI_API_KEY
+        } catch (_: Throwable) {
+            ""
+        }
+
+        if (apiKey.isBlank() || apiKey == "MY_GEMINI_API_KEY" || apiKey == "<redacted>") {
+            Log.d(TAG, "Gemini API key unavailable; keeping on-device verdict for chat message.")
+            val fallback = ContentVerdict(
+                isStudyAllowed = true,
+                isAdult = false,
+                category = "UNKNOWN",
+                reason = "On-device undecided, no AI key",
+                confidence = 0.5f
+            )
+            return@withContext fallback
+        }
+
+        try {
+            val systemInstruction = """
+                You are a strict real-time AI Study Guard for a student focus app.
+                The student is in an ACTIVE study session and is chatting with an AI assistant ($appName).
+                Decide if the student's message is ACADEMIC_STUDY or NON_STUDY_DISTRACTION.
+
+                ACADEMIC_STUDY (is_study_allowed = true): school/college subjects, homework, exam prep
+                (JEE, NEET, UPSC, etc.), coding, language learning, legitimate educational doubt-solving.
+                Applies in ANY language: English, Hindi, Hinglish, or mixed.
+
+                NON_STUDY_DISTRACTION (is_study_allowed = false): casual chit-chat, greetings, jokes,
+                timepass, entertainment (movies/music/games/sports), romance/dating talk, gossip,
+                or any non-academic conversation. Applies in ANY language.
+
+                Return ONLY a valid JSON object with this exact schema:
+                {
+                  "is_study_allowed": boolean (true ONLY if strictly academic),
+                  "is_adult": boolean,
+                  "category": string,
+                  "reason": string (one short sentence)
+                }
+            """.trimIndent()
+
+            val userPrompt = "Student's message to $appName: \"$message\""
+
+            val requestJson = JSONObject().apply {
+                put("contents", JSONArray().apply {
+                    put(JSONObject().apply {
+                        put("parts", JSONArray().apply {
+                            put(JSONObject().put("text", userPrompt))
+                        })
+                    })
+                })
+                put("systemInstruction", JSONObject().apply {
+                    put("parts", JSONArray().apply {
+                        put(JSONObject().put("text", systemInstruction))
+                    })
+                })
+                put("generationConfig", JSONObject().apply {
+                    put("temperature", 0.1)
+                    put("responseMimeType", "application/json")
+                })
+            }
+
+            val requestBody = requestJson.toString().toRequestBody("application/json; charset=utf-8".toMediaType())
+            val request = Request.Builder()
+                .url("$GEMINI_ENDPOINT?key=$apiKey")
+                .post(requestBody)
+                .build()
+
+            val response = okHttpClient.newCall(request).execute()
+            val responseBody = response.body?.string()
+
+            if (response.isSuccessful && !responseBody.isNullOrBlank()) {
+                val respJson = JSONObject(responseBody)
+                val textPart = respJson.optJSONArray("candidates")
+                    ?.optJSONObject(0)?.optJSONObject("content")
+                    ?.optJSONArray("parts")?.optJSONObject(0)?.optString("text")
+
+                if (!textPart.isNullOrBlank()) {
+                    val parsed = JSONObject(textPart.trim())
+                    val isStudy = parsed.optBoolean("is_study_allowed", true)
+                    val isAdult = parsed.optBoolean("is_adult", false)
+                    val category = parsed.optString("category", if (isStudy) "Academic Study" else "Non-Study Chat")
+                    val reason = parsed.optString("reason", if (isStudy) "Study-related chat verified by Gemini AI" else "Non-study conversation detected by Gemini AI")
+
+                    val verdict = ContentVerdict(
+                        isStudyAllowed = isStudy && !isAdult,
+                        isAdult = isAdult,
+                        category = category,
+                        reason = reason,
+                        confidence = 0.95f
+                    )
+                    classificationCache.put(cacheKey, verdict)
+                    Log.i(TAG, "[Gemini Chat Verdict] App: $appName -> Allowed=$isStudy ($reason)")
+                    return@withContext verdict
+                }
+            } else {
+                Log.w(TAG, "Gemini chat call failed HTTP ${response.code}")
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Gemini chat classification exception: ${e.message}")
+        }
+
+        val fallback = ContentVerdict(true, false, "UNKNOWN", "AI unavailable", 0.5f)
+        classificationCache.put(cacheKey, fallback)
+        return@withContext fallback
+    }
+
     private fun buildCacheKey(title: String, channel: String?): String {
         return "${title.trim().lowercase(Locale.ROOT)}|${channel?.trim()?.lowercase(Locale.ROOT) ?: ""}"
     }

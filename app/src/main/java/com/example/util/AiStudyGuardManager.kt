@@ -756,6 +756,25 @@ object AiStudyGuardManager {
         }
     }
 
+    /**
+     * v1.1.6: Liveness signal. The accessibility service writes a heartbeat timestamp
+     * on every processed event; the hub uses this to distinguish a truly listening
+     * service from a stale "Granted" settings flag.
+     */
+    fun getLastGuardEventAtMs(context: Context): Long {
+        return try {
+            context.getSharedPreferences("focusly_guard_prefs", Context.MODE_PRIVATE)
+                .getLong("last_guard_event_at_ms", 0L)
+        } catch (_: Exception) {
+            0L
+        }
+    }
+
+    fun isGuardListeningRecently(context: Context): Boolean {
+        val last = getLastGuardEventAtMs(context)
+        return last > 0L && System.currentTimeMillis() - last < 5 * 60 * 1000L
+    }
+
     fun openAccessibilitySettings(context: Context) {
         try {
             val intent = Intent(android.provider.Settings.ACTION_ACCESSIBILITY_SETTINGS).apply {

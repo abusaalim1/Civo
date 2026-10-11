@@ -5,7 +5,6 @@ import android.content.Intent
 import android.content.pm.PackageInfo
 import android.net.Uri
 import android.util.Log
-import com.example.data.SupabaseManager
 import io.github.jan.supabase.postgrest.from
 import io.github.jan.supabase.postgrest.query.Columns
 import io.github.jan.supabase.postgrest.query.Order
@@ -55,6 +54,12 @@ object AppUpdateManager {
     private const val CHECK_INTERVAL_MS = 24 * 60 * 60 * 1000L
     private const val DISMISS_SUPPRESS_MS = 24 * 60 * 60 * 1000L
 
+    // v1.1.6: the app's main Supabase project (SupabaseManager) is the app-data backend
+    // and does NOT host the app_updates table. Update metadata lives on the website
+    // backend project — query it directly with its own public anon key.
+    private const val UPDATES_SUPABASE_URL = "https://yuvbgmwkzjuvsukqdnyp.supabase.co"
+    private const val UPDATES_SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inl1dmJnbXdremp1dnN1a3FkbnlwIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTE1NjIwODIsImV4cCI6MjEwNzEzODA4Mn0.8tAjmP_IFFxuiRcW9wkf0GB2aJWsR4H8fFsv50rPeIw"
+
     private val httpClient by lazy {
         OkHttpClient.Builder()
             .connectTimeout(10, TimeUnit.SECONDS)
@@ -91,13 +96,13 @@ object AppUpdateManager {
 
         prefs.edit().putLong(KEY_LAST_CHECK_TIMESTAMP, System.currentTimeMillis()).apply()
 
-        // 1. Try Supabase app_updates table
-        var remoteDto: AppUpdateDto? = fetchUpdateFromSupabase()
+        // 1. Primary: direct HTTPS to the updates backend project (proven reliable)
+        var remoteDto: AppUpdateDto? = fetchUpdateFromHttpFallback()
 
-        // 2. Fallback: Try public raw update metadata endpoint if Supabase is unavailable
+        // 2. Fallback: supabase-kt SDK against the same updates project
         if (remoteDto == null) {
-            Log.w(TAG, "Primary app_updates query failed, trying HTTP fallback")
-            remoteDto = fetchUpdateFromHttpFallback()
+            Log.w(TAG, "HTTP app_updates query failed, trying Supabase SDK fallback")
+            remoteDto = fetchUpdateFromSupabase()
         }
 
         if (remoteDto == null) {
@@ -145,7 +150,7 @@ object AppUpdateManager {
 
     private suspend fun fetchUpdateFromSupabase(): AppUpdateDto? {
         return try {
-            val response = SupabaseManager.client
+            val response = updatesClient
                 .from("app_updates")
                 .select(columns = Columns.ALL) {
                     order("version_code", Order.DESCENDING)
@@ -155,15 +160,26 @@ object AppUpdateManager {
 
             response.firstOrNull()
         } catch (e: Exception) {
-            Log.d(TAG, "Supabase app_updates query skipped/unavailable: ${e.message}")
+            Log.e(TAG, "Supabase SDK app_updates query failed", e)
             null
+        }
+    }
+
+    // v1.1.6: dedicated client for the updates backend project (separate from the
+    // app-data project in SupabaseManager, which has no app_updates table).
+    private val updatesClient by lazy {
+        io.github.jan.supabase.createSupabaseClient(
+            supabaseUrl = UPDATES_SUPABASE_URL,
+            supabaseKey = UPDATES_SUPABASE_KEY
+        ) {
+            install(io.github.jan.supabase.postgrest.Postgrest)
         }
     }
 
     private fun fetchUpdateFromHttpFallback(): AppUpdateDto? {
         return try {
-            val supabaseUrl = SupabaseManager.SUPABASE_URL
-            val supabaseKey = SupabaseManager.SUPABASE_KEY
+            val supabaseUrl = UPDATES_SUPABASE_URL
+            val supabaseKey = UPDATES_SUPABASE_KEY
             val request = Request.Builder()
                 .url("$supabaseUrl/rest/v1/app_updates?select=*&order=version_code.desc&limit=1")
                 .addHeader("apikey", supabaseKey)
@@ -195,7 +211,7 @@ object AppUpdateManager {
             }
             null
         } catch (e: Exception) {
-            Log.d(TAG, "Http fallback app_updates query failed: ${e.message}")
+            Log.e(TAG, "Http fallback app_updates query failed", e)
             null
         }
     }

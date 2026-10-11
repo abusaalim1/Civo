@@ -45,6 +45,10 @@ class AiStudyAccessibilityService : AccessibilityService() {
         private var lastPunishedPackageIntercepted: String? = null
         private val lastEvaluatedScreenSignatures = LinkedHashMap<String, Long>()
         private val lastAiChatScanMs = mutableMapOf<String, Long>()
+        // v1.1.6: throttle for Gemini tie-breaker on ambiguous AI-chat messages
+        private val lastAiChatGeminiMs = mutableMapOf<String, Long>()
+        // v1.1.6: liveness heartbeat write throttle
+        private var lastLivenessWriteMs: Long = 0L
     }
 
     override fun onServiceConnected() {
@@ -124,6 +128,18 @@ class AiStudyAccessibilityService : AccessibilityService() {
             // 2. Essential apps, system launchers, folders, emergency, dialer, camera, gallery are PERMANENTLY protected
             if (EssentialAppsGuard.isEssentialApp(applicationContext, pkg)) {
                 return
+            }
+
+            // v1.1.6: liveness heartbeat — lets the hub show "listening" vs stale "Granted".
+            // Throttled to one prefs write per 10s; records every event the service sees,
+            // whether or not a study session is active.
+            val nowHeartbeat = System.currentTimeMillis()
+            if (nowHeartbeat - lastLivenessWriteMs > 10_000L) {
+                lastLivenessWriteMs = nowHeartbeat
+                try {
+                    applicationContext.getSharedPreferences("focusly_guard_prefs", Context.MODE_PRIVATE)
+                        .edit().putLong("last_guard_event_at_ms", nowHeartbeat).apply()
+                } catch (_: Exception) { }
             }
 
             // CRITICAL: App blocking and study guard ONLY run during an active study session or active triggered schedule!
@@ -279,65 +295,16 @@ class AiStudyAccessibilityService : AccessibilityService() {
                             if (isYouTubeAiFilterOn) {
                                 val activeVideo = extractPlayingYouTubeVideo(rootNode)
                                 if (activeVideo != null && activeVideo.title.isNotBlank() && activeVideo.title.length >= 4) {
-                                    val quickVerdict = GeminiContentClassifier.quickEvaluate(
-                                        title = activeVideo.title,
-                                        channel = activeVideo.channel,
-                                        metadata = activeVideo.metadata
-                                    )
-
-                                    if (!quickVerdict.isStudyAllowed || quickVerdict.isAdult) {
-                                        val now = System.currentTimeMillis()
-                                        if (now - lastYouTubeAiInterceptTimeMs > 1500L) {
-                                            lastYouTubeAiInterceptTimeMs = now
-                                            Log.w(TAG, "[YouTube AI Guard] Quick intercepting non-study video: '${activeVideo.title}' (${activeVideo.channel}) -> ${quickVerdict.reason}")
-                                            YouTubeStudyGuardManager.recordBlockedVideo(
-                                                context = applicationContext,
-                                                title = activeVideo.title,
-                                                channel = activeVideo.channel,
-                                                reason = quickVerdict.reason
-                                            )
-                                            val blockLabel = if (quickVerdict.isAdult) "🔞 Inappropriate / 18+ Content" else "🔒 Non-Study Entertainment Blocked"
-                                            val reasonMsg = "$blockLabel:\n\"${activeVideo.title}\"\n\nCategory: ${quickVerdict.category}\nReason: ${quickVerdict.reason}\n\nOnly educational lectures, exam prep, school/college subjects & coding tutorials are allowed!"
-                                            forceStopMediaAndDismissToFocivo(
-                                                context = applicationContext,
-                                                blockedPackage = "com.google.android.youtube.entertainment",
-                                                appName = "YouTube AI Guard",
-                                                reason = reasonMsg,
-                                                isGeminiIntercept = true
-                                            )
-                                        }
-                                        return
-                                    } else {
-                                        // Launch background Gemini check for deep verification
-                                        serviceScope.launch {
-                                            val geminiVerdict = GeminiContentClassifier.evaluateWithGemini(
-                                                title = activeVideo.title,
-                                                channel = activeVideo.channel,
-                                                metadata = activeVideo.metadata
-                                            )
-                                            if (!geminiVerdict.isStudyAllowed || geminiVerdict.isAdult) {
-                                                val now = System.currentTimeMillis()
-                                                if (now - lastYouTubeAiInterceptTimeMs > 1500L) {
-                                                    lastYouTubeAiInterceptTimeMs = now
-                                                    Log.w(TAG, "[Gemini AI Guard] Intercepting non-study video: '${activeVideo.title}' (${activeVideo.channel}) -> ${geminiVerdict.reason}")
-                                                    YouTubeStudyGuardManager.recordBlockedVideo(
-                                                        context = applicationContext,
-                                                        title = activeVideo.title,
-                                                        channel = activeVideo.channel,
-                                                        reason = geminiVerdict.reason
-                                                    )
-                                                    val blockLabel = if (geminiVerdict.isAdult) "🔞 Inappropriate / 18+ Content" else "🔒 Non-Study Entertainment Blocked"
-                                                    val reasonMsg = "$blockLabel:\n\"${activeVideo.title}\"\n\nCategory: ${geminiVerdict.category}\nReason: ${geminiVerdict.reason}\n\nOnly educational lectures, exam prep, school/college subjects & coding tutorials are allowed!"
-                                                    forceStopMediaAndDismissToFocivo(
-                                                        context = applicationContext,
-                                                        blockedPackage = "com.google.android.youtube.entertainment",
-                                                        appName = "YouTube AI Guard",
-                                                        reason = reasonMsg,
-                                                        isGeminiIntercept = true
-                                                    )
-                                                }
-                                            }
-                                        }
+                                    val blocked = processYouTubeVideoTitle(activeVideo.title, activeVideo.channel, activeVideo.metadata)
+                                    if (blocked) return
+                                } else {
+                                    // v1.1.6 fallback: title view-ids not exposed (e.g. fullscreen/custom player).
+                                    // Scan prominent on-screen text instead of silently skipping detection.
+                                    val fallbackTitle = extractFallbackVideoTitle(rootNode)
+                                    if (!fallbackTitle.isNullOrBlank()) {
+                                        Log.d(TAG, "[YouTube AI Guard] Primary title extraction missed; using fallback title: '$fallbackTitle'")
+                                        val blocked = processYouTubeVideoTitle(fallbackTitle, null, "fallback_title_scan")
+                                        if (blocked) return
                                     }
                                 }
                             }
@@ -453,7 +420,36 @@ class AiStudyAccessibilityService : AccessibilityService() {
                                         messageText = candidate,
                                         reason = result.reason
                                     )
-                                } else if (!result.reason.contains("benefit of doubt")) {
+                                } else if (result.reason.contains("benefit of doubt")) {
+                                    // v1.1.6: on-device could not decide (no keyword match) — ask Gemini AI
+                                    // as tie-breaker so natural Hinglish/casual chat is still judged.
+                                    // Throttled: at most one Gemini chat check per package per 8s.
+                                    val nowGem = System.currentTimeMillis()
+                                    val lastGem = lastAiChatGeminiMs[pkg] ?: 0L
+                                    if (nowGem - lastGem >= 8000L && candidate.length >= 4) {
+                                        lastAiChatGeminiMs[pkg] = nowGem
+                                        val msgCopy = candidate
+                                        serviceScope.launch {
+                                            try {
+                                                val gv = GeminiContentClassifier.evaluateChatMessageWithGemini(
+                                                    message = msgCopy,
+                                                    appName = pkg
+                                                )
+                                                if (!gv.isStudyAllowed || gv.isAdult) {
+                                                    Log.w(TAG, "[Gemini Chat Guard] Non-study message in $pkg: '$msgCopy' -> ${gv.reason}")
+                                                    AiStudyGuardManager.onNonStudyDetected(
+                                                        context = applicationContext,
+                                                        packageName = pkg,
+                                                        messageText = msgCopy,
+                                                        reason = gv.reason
+                                                    )
+                                                }
+                                            } catch (t: Throwable) {
+                                                Log.w(TAG, "Gemini chat evaluation failed: ${t.message}")
+                                            }
+                                        }
+                                    }
+                                } else {
                                     AiStudyGuardManager.onStudyActivityDetected(
                                         context = applicationContext,
                                         packageName = pkg,
@@ -659,6 +655,105 @@ class AiStudyAccessibilityService : AccessibilityService() {
         val channel: String? = null,
         val metadata: String? = null
     )
+
+    /**
+     * v1.1.6: Evaluates one YouTube video title (primary or fallback extraction).
+     * Returns true when the video was quick-blocked and the caller should stop
+     * processing this event; false when a background Gemini check was launched.
+     */
+    private fun processYouTubeVideoTitle(title: String, channel: String?, metadata: String?): Boolean {
+        val quickVerdict = GeminiContentClassifier.quickEvaluate(
+            title = title,
+            channel = channel,
+            metadata = metadata
+        )
+
+        if (!quickVerdict.isStudyAllowed || quickVerdict.isAdult) {
+            val now = System.currentTimeMillis()
+            if (now - lastYouTubeAiInterceptTimeMs > 1500L) {
+                lastYouTubeAiInterceptTimeMs = now
+                Log.w(TAG, "[YouTube AI Guard] Quick intercepting non-study video: '$title' ($channel) -> ${quickVerdict.reason}")
+                YouTubeStudyGuardManager.recordBlockedVideo(
+                    context = applicationContext,
+                    title = title,
+                    channel = channel,
+                    reason = quickVerdict.reason
+                )
+                val blockLabel = if (quickVerdict.isAdult) "🔞 Inappropriate / 18+ Content" else "🔒 Non-Study Entertainment Blocked"
+                val reasonMsg = "$blockLabel:\n\"$title\"\n\nCategory: ${quickVerdict.category}\nReason: ${quickVerdict.reason}\n\nOnly educational lectures, exam prep, school/college subjects & coding tutorials are allowed!"
+                forceStopMediaAndDismissToFocivo(
+                    context = applicationContext,
+                    blockedPackage = "com.google.android.youtube.entertainment",
+                    appName = "YouTube AI Guard",
+                    reason = reasonMsg,
+                    isGeminiIntercept = true
+                )
+            }
+            return true
+        } else {
+            // Launch background Gemini check for deep verification
+            serviceScope.launch {
+                val geminiVerdict = GeminiContentClassifier.evaluateWithGemini(
+                    title = title,
+                    channel = channel,
+                    metadata = metadata
+                )
+                if (!geminiVerdict.isStudyAllowed || geminiVerdict.isAdult) {
+                    val now = System.currentTimeMillis()
+                    if (now - lastYouTubeAiInterceptTimeMs > 1500L) {
+                        lastYouTubeAiInterceptTimeMs = now
+                        Log.w(TAG, "[Gemini AI Guard] Intercepting non-study video: '$title' ($channel) -> ${geminiVerdict.reason}")
+                        YouTubeStudyGuardManager.recordBlockedVideo(
+                            context = applicationContext,
+                            title = title,
+                            channel = channel,
+                            reason = geminiVerdict.reason
+                        )
+                        val blockLabel = if (geminiVerdict.isAdult) "🔞 Inappropriate / 18+ Content" else "🔒 Non-Study Entertainment Blocked"
+                        val reasonMsg = "$blockLabel:\n\"$title\"\n\nCategory: ${geminiVerdict.category}\nReason: ${geminiVerdict.reason}\n\nOnly educational lectures, exam prep, school/college subjects & coding tutorials are allowed!"
+                        forceStopMediaAndDismissToFocivo(
+                            context = applicationContext,
+                            blockedPackage = "com.google.android.youtube.entertainment",
+                            appName = "YouTube AI Guard",
+                            reason = reasonMsg,
+                            isGeminiIntercept = true
+                        )
+                    }
+                }
+            }
+            return false
+        }
+    }
+
+    /**
+     * v1.1.6: Fallback title scan for YouTube screens where the player does not expose
+     * title view-ids (fullscreen / custom player UI). Picks the longest prominent text
+     * node as the candidate video title. Returns null when nothing title-like is found.
+     */
+    private fun extractFallbackVideoTitle(rootNode: AccessibilityNodeInfo): String? {
+        var best: String? = null
+        fun traverse(node: AccessibilityNodeInfo, depth: Int) {
+            if (depth > 10) return
+            val text = node.text?.toString()?.trim()
+            if (!text.isNullOrBlank() && text.length in 12..160) {
+                val lower = text.lowercase(Locale.ROOT)
+                val isUiChrome = lower.contains("youtube") || lower == "search" ||
+                        lower.contains("subscribe") || lower.contains("notification") ||
+                        lower.startsWith("home") || lower.startsWith("shorts")
+                if (!isUiChrome && (best == null || text.length > best!!.length)) {
+                    best = text
+                }
+            }
+            val count = node.childCount
+            for (i in 0 until count) {
+                val child = node.getChild(i) ?: continue
+                traverse(child, depth + 1)
+                try { child.recycle() } catch (_: Exception) {}
+            }
+        }
+        traverse(rootNode, 0)
+        return best
+    }
 
     private fun extractPlayingYouTubeVideo(rootNode: AccessibilityNodeInfo): YouTubeActiveVideoInfo? {
         var foundTitle: String? = null

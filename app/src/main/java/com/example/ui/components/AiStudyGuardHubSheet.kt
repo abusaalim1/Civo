@@ -94,6 +94,8 @@ fun AiStudyGuardHubSheet(
 
     var isAiGuardEnabled by remember { mutableStateOf(AiStudyGuardManager.isAiGuardEnabled(context)) }
     var hasAccessibility by remember { mutableStateOf(AiStudyGuardManager.isAccessibilityPermissionGranted(context)) }
+    // v1.1.6: liveness — distinguishes a truly listening service from a stale "Granted" flag
+    var guardListening by remember { mutableStateOf(AiStudyGuardManager.isGuardListeningRecently(context)) }
     var isStudyActiveNow by remember { mutableStateOf(AiStudyGuardManager.isStudyPeriodActive(context)) }
     var batteryExempt by remember { mutableStateOf(PermissionUtils.isBatteryOptimizationDisabled(context)) }
     var notifGranted by remember { mutableStateOf(PermissionUtils.hasNotificationPermission(context)) }
@@ -115,6 +117,7 @@ fun AiStudyGuardHubSheet(
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_RESUME) {
                 hasAccessibility = AiStudyGuardManager.isAccessibilityPermissionGranted(context)
+                guardListening = AiStudyGuardManager.isGuardListeningRecently(context)
                 isAiGuardEnabled = AiStudyGuardManager.isAiGuardEnabled(context)
                 isStudyActiveNow = AiStudyGuardManager.isStudyPeriodActive(context)
                 batteryExempt = PermissionUtils.isBatteryOptimizationDisabled(context)
@@ -526,6 +529,27 @@ fun AiStudyGuardHubSheet(
                             textSecondary = textSecondary,
                             accentLime = accentLime
                         )
+                        // v1.1.6: liveness — "Connected" can be a stale settings flag;
+                        // this shows whether the service is actually receiving events.
+                        if (hasAccessibility) {
+                            Spacer(modifier = Modifier.height(8.dp))
+                            GuardStatusRow(
+                                label = "Service events",
+                                stateText = if (guardListening) "Listening now" else "No recent events",
+                                ok = guardListening,
+                                textPrimary = textPrimary,
+                                textSecondary = textSecondary,
+                                accentLime = accentLime
+                            )
+                            if (!guardListening) {
+                                Spacer(modifier = Modifier.height(6.dp))
+                                Text(
+                                    text = "Service granted but silent — toggle accessibility OFF then ON once.",
+                                    fontSize = 11.5.sp,
+                                    color = textSecondary
+                                )
+                            }
+                        }
                         Spacer(modifier = Modifier.height(8.dp))
                         GuardStatusRow(
                             label = "Study period",
