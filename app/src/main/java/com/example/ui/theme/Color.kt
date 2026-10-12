@@ -44,6 +44,32 @@ val AppleCardBorderDark = Color(0x22FFFFFF)
 val AppleCardHighlightLight = Color(0x99FFFFFF)
 val AppleCardHighlightDark = Color(0x25FFFFFF)
 
+// Liquid Glass Refraction & Apple Specular Shine Tokens
+val LiquidGlassFillLight = Color(0xF8FFFFFF)
+val LiquidGlassFillDark = Color(0xEA161A16)
+val LiquidGlassBorderLight = Color(0x20000000)
+val LiquidGlassBorderDark = Color(0x35FFFFFF)
+
+val LiquidGlassShineGradientLight = Brush.linearGradient(
+    listOf(
+        Color(0x00FFFFFF),
+        Color(0x208CE000),
+        Color(0x60FFFFFF),
+        Color(0x158CE000),
+        Color(0x00FFFFFF)
+    )
+)
+
+val LiquidGlassShineGradientDark = Brush.linearGradient(
+    listOf(
+        Color(0x00FFFFFF),
+        Color(0x1E8CE000),
+        Color(0x35FFFFFF),
+        Color(0x188CE000),
+        Color(0x00FFFFFF)
+    )
+)
+
 val LinearLimeHeroGradient = Brush.horizontalGradient(
     listOf(Color(0xFF8CE000), Color(0xFFAEF72A))
 )

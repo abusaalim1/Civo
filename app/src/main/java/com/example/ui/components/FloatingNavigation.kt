@@ -42,7 +42,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
-import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalView
@@ -82,8 +84,8 @@ fun FloatingNavigation(
     val view = LocalView.current
     val isDark = isAppInDarkTheme()
 
-    val barBg = if (isDark) Color(0xE61C1C1E) else Color(0xF8FFFFFF)
-    val barBorder = if (isDark) Color(0x28FFFFFF) else Color(0x14000000)
+    val barBg = if (isDark) Color(0xF0181D18) else Color(0xF6FFFFFF)
+    val barBorder = if (isDark) Color(0x35FFFFFF) else Color(0x18000000)
     val activeBg = RegainLimePrimary
     val activeContent = Color(0xFF061505)
     val inactiveContent = if (isDark) Color(0xFF8E8E93) else Color(0xFF6C6C70)
@@ -95,18 +97,35 @@ fun FloatingNavigation(
             .padding(horizontal = 20.dp, vertical = 10.dp),
         contentAlignment = Alignment.Center
     ) {
-        // Apple-inspired Floating Dock
+        // Apple-inspired Floating Dock with Liquid Glass refraction
         Box(
             modifier = Modifier
                 .shadow(
-                    elevation = 12.dp,
+                    elevation = 14.dp,
                     shape = CircleShape,
-                    ambientColor = if (isDark) Color(0x18000000) else Color(0x0C000000),
-                    spotColor = if (isDark) Color(0x35000000) else Color(0x14000000)
+                    ambientColor = if (isDark) Color(0x28000000) else Color(0x0E000000),
+                    spotColor = if (isDark) Color(0x45000000) else Color(0x18000000)
                 )
                 .clip(CircleShape)
                 .background(barBg)
-                .border(0.8.dp, barBorder, CircleShape)
+                .drawBehind {
+                    val highlight = if (isDark) Color(0x35FFFFFF) else Color(0xB5FFFFFF)
+                    drawLine(
+                        brush = Brush.horizontalGradient(
+                            colors = listOf(
+                                Color.Transparent,
+                                highlight.copy(alpha = 0.4f),
+                                highlight,
+                                highlight.copy(alpha = 0.4f),
+                                Color.Transparent
+                            )
+                        ),
+                        start = Offset(0f, 1f),
+                        end = Offset(size.width, 1f),
+                        strokeWidth = 1.6f
+                    )
+                }
+                .border(0.85.dp, barBorder, CircleShape)
                 .padding(horizontal = 7.dp, vertical = 5.dp)
         ) {
             Row(

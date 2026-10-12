@@ -128,14 +128,14 @@ fun LinearGlowCard(
     val isDark = isAppInDarkTheme()
     val interactionSource = remember { MutableInteractionSource() }
 
-    val cardBg = if (isDark) Color(0xF21C1C1E) else Color(0xFFFFFFFF)
-    val cardBorder = if (isDark) Color(0x22FFFFFF) else Color(0x12000000)
-    val topHighlight = if (isDark) Color(0x28FFFFFF) else Color(0x90FFFFFF)
+    val cardBg = if (isDark) Color(0xF0181D18) else Color(0xFAFFFFFF)
+    val cardBorder = if (isDark) Color(0x28FFFFFF) else Color(0x16000000)
+    val topHighlight = if (isDark) Color(0x35FFFFFF) else Color(0xB5FFFFFF)
 
     val effectiveBorder = border ?: if (accentBorder) {
         BorderStroke(1.dp, RegainLimePrimary)
     } else {
-        BorderStroke(0.8.dp, cardBorder)
+        BorderStroke(0.85.dp, cardBorder)
     }
 
     val clickModifier = if (onClick != null) {
@@ -151,10 +151,10 @@ fun LinearGlowCard(
     Box(
         modifier = modifier
             .shadow(
-                elevation = 6.dp,
+                elevation = 8.dp,
                 shape = shape,
-                ambientColor = if (isDark) glowColor.copy(alpha = glowAlpha) else Color(0x0C000000),
-                spotColor = if (isDark) Color(0x35000000) else Color(0x14000000)
+                ambientColor = if (isDark) glowColor.copy(alpha = glowAlpha) else Color(0x0E000000),
+                spotColor = if (isDark) Color(0x3E000000) else Color(0x16000000)
             )
             .clip(shape)
             .background(cardBg)
@@ -164,14 +164,15 @@ fun LinearGlowCard(
                     brush = Brush.horizontalGradient(
                         colors = listOf(
                             Color.Transparent,
+                            topHighlight.copy(alpha = 0.5f),
                             topHighlight,
-                            topHighlight.copy(alpha = 0.85f),
+                            topHighlight.copy(alpha = 0.5f),
                             Color.Transparent
                         )
                     ),
                     start = Offset(0f, 1f),
                     end = Offset(size.width, 1f),
-                    strokeWidth = 1.5f
+                    strokeWidth = 1.6f
                 )
             }
             .border(
@@ -229,14 +230,14 @@ fun GlassCard(
     val interactionSource = remember { MutableInteractionSource() }
 
     // Apple-inspired minimal glass surface
-    val cardBg = if (isDark) Color(0xF21C1C1E) else Color(0xFFFFFFFF)
-    val cardBorder = if (isDark) Color(0x22FFFFFF) else Color(0x12000000)
-    val topHighlight = if (isDark) Color(0x28FFFFFF) else Color(0x90FFFFFF)
+    val cardBg = if (isDark) Color(0xF0181C18) else Color(0xFAFFFFFF)
+    val cardBorder = if (isDark) Color(0x30FFFFFF) else Color(0x18000000)
+    val topHighlight = if (isDark) Color(0x35FFFFFF) else Color(0xB0FFFFFF)
 
     val effectiveBorder = border ?: if (accentBorder) {
         BorderStroke(1.dp, RegainLimePrimary)
     } else {
-        BorderStroke(0.8.dp, cardBorder.copy(alpha = borderAlpha.coerceAtLeast(0.75f)))
+        BorderStroke(0.85.dp, cardBorder.copy(alpha = borderAlpha.coerceAtLeast(0.75f)))
     }
 
     val clickModifier = if (onClick != null) {
@@ -252,27 +253,41 @@ fun GlassCard(
     Box(
         modifier = modifier
             .shadow(
-                elevation = 6.dp,
+                elevation = 7.dp,
                 shape = shape,
-                ambientColor = if (isDark) Color(0x28000000) else Color(0x10000000),
-                spotColor = if (isDark) Color(0x38000000) else Color(0x18000000)
+                ambientColor = if (isDark) Color(0x2E000000) else Color(0x0E000000),
+                spotColor = if (isDark) Color(0x40000000) else Color(0x16000000)
             )
             .clip(shape)
             .background(cardBg)
             .drawBehind {
-                // Subtle top edge highlight simulating real physical glass refraction
+                // Dual-edge specular highlight simulating Apple physical liquid glass refraction
                 drawLine(
                     brush = Brush.horizontalGradient(
                         colors = listOf(
                             Color.Transparent,
+                            topHighlight.copy(alpha = 0.4f),
                             topHighlight,
-                            topHighlight.copy(alpha = 0.8f),
+                            topHighlight.copy(alpha = 0.4f),
                             Color.Transparent
                         )
                     ),
                     start = Offset(0f, 1f),
                     end = Offset(size.width, 1f),
-                    strokeWidth = 1.5f
+                    strokeWidth = 1.6f
+                )
+                // Bottom subtle ambient bounce light
+                drawLine(
+                    brush = Brush.horizontalGradient(
+                        colors = listOf(
+                            Color.Transparent,
+                            if (isDark) Color(0x12FFFFFF) else Color(0x28FFFFFF),
+                            Color.Transparent
+                        )
+                    ),
+                    start = Offset(0f, size.height - 1f),
+                    end = Offset(size.width, size.height - 1f),
+                    strokeWidth = 0.9f
                 )
             }
             .border(
@@ -317,22 +332,22 @@ fun LiquidGlassCard(
             )
     } else Modifier
 
-    val cardBg = if (isDark) Color(0xF21C1C1E) else Color(0xFFFFFFFF)
-    val cardBorder = if (isDark) Color(0x22FFFFFF) else Color(0x12000000)
+    val cardBg = if (isDark) Color(0xF2161A16) else Color(0xF8FFFFFF)
+    val cardBorder = if (isDark) Color(0x35FFFFFF) else Color(0x18000000)
 
     val effectiveBorder = border ?: if (accentBorder) {
         BorderStroke(1.dp, RegainLimePrimary)
     } else {
-        BorderStroke(0.8.dp, cardBorder)
+        BorderStroke(0.9.dp, cardBorder)
     }
 
     Box(
         modifier = modifier
             .shadow(
-                elevation = 8.dp,
+                elevation = 10.dp,
                 shape = shape,
-                ambientColor = if (isDark) Color(0x288CE000) else Color(0x0C000000),
-                spotColor = if (isDark) Color(0x35000000) else Color(0x14000000)
+                ambientColor = if (isDark) Color(0x358CE000) else Color(0x10000000),
+                spotColor = if (isDark) Color(0x45000000) else Color(0x1C000000)
             )
             .clip(shape)
             .background(cardBg)
@@ -342,27 +357,44 @@ fun LiquidGlassCard(
                         brush = Brush.linearGradient(
                             colors = listOf(
                                 Color.Transparent,
-                                Color(0x148CE000),
-                                Color(0x24FFFFFF),
+                                Color(0x188CE000),
+                                if (isDark) Color(0x28FFFFFF) else Color(0x40FFFFFF),
+                                Color(0x128CE000),
                                 Color.Transparent
                             ),
                             start = Offset(shimmerOffset, 0f),
-                            end = Offset(shimmerOffset + 260f, size.height)
+                            end = Offset(shimmerOffset + 320f, size.height)
                         )
                     )
                 }
-                // Subtle top edge highlight
+                // Double specular refraction highlights (Apple physical glass effect)
+                // Top pristine highlight
                 drawLine(
                     brush = Brush.horizontalGradient(
                         colors = listOf(
                             Color.Transparent,
-                            if (isDark) Color(0x28FFFFFF) else Color(0x90FFFFFF),
+                            if (isDark) Color(0x38FFFFFF) else Color(0xB0FFFFFF),
+                            if (isDark) Color(0x50FFFFFF) else Color(0xD8FFFFFF),
+                            if (isDark) Color(0x38FFFFFF) else Color(0xB0FFFFFF),
                             Color.Transparent
                         )
                     ),
                     start = Offset(0f, 1f),
                     end = Offset(size.width, 1f),
-                    strokeWidth = 1.5f
+                    strokeWidth = 1.8f
+                )
+                // Bottom ambient backlight reflection
+                drawLine(
+                    brush = Brush.horizontalGradient(
+                        colors = listOf(
+                            Color.Transparent,
+                            if (isDark) Color(0x15FFFFFF) else Color(0x30FFFFFF),
+                            Color.Transparent
+                        )
+                    ),
+                    start = Offset(0f, size.height - 1f),
+                    end = Offset(size.width, size.height - 1f),
+                    strokeWidth = 1f
                 )
             }
             .border(
@@ -383,35 +415,37 @@ fun Modifier.appleCard(
     isDark: Boolean,
     accentBorder: Boolean = false,
     accentColor: Color = RegainLimePrimary,
-    elevation: Dp = 4.dp
+    elevation: Dp = 5.dp
 ): Modifier = this
     .shadow(
         elevation = elevation,
         shape = shape,
-        ambientColor = if (isDark) Color(0x18000000) else Color(0x08000000),
-        spotColor = if (isDark) Color(0x35000000) else Color(0x0E000000)
+        ambientColor = if (isDark) Color(0x20000000) else Color(0x0C000000),
+        spotColor = if (isDark) Color(0x3E000000) else Color(0x14000000)
     )
     .clip(shape)
-    .background(if (isDark) Color(0xF21C1C1E) else Color(0xFFFFFFFF))
+    .background(if (isDark) Color(0xF2191D19) else Color(0xFBFFFFFF))
     .drawBehind {
-        val topHighlight = if (isDark) Color(0x28FFFFFF) else Color(0x90FFFFFF)
+        val topHighlight = if (isDark) Color(0x30FFFFFF) else Color(0xA8FFFFFF)
+        // Refined physical specular refraction line
         drawLine(
             brush = Brush.horizontalGradient(
                 colors = listOf(
                     Color.Transparent,
+                    topHighlight.copy(alpha = 0.5f),
                     topHighlight,
-                    topHighlight.copy(alpha = 0.85f),
+                    topHighlight.copy(alpha = 0.5f),
                     Color.Transparent
                 )
             ),
             start = Offset(0f, 1f),
             end = Offset(size.width, 1f),
-            strokeWidth = 1.5f
+            strokeWidth = 1.6f
         )
     }
     .border(
-        width = 0.8.dp,
-        color = if (accentBorder) accentColor.copy(alpha = 0.85f) else (if (isDark) Color(0x22FFFFFF) else Color(0x12000000)),
+        width = 0.9.dp,
+        color = if (accentBorder) accentColor.copy(alpha = 0.85f) else (if (isDark) Color(0x28FFFFFF) else Color(0x16000000)),
         shape = shape
     )
 

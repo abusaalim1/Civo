@@ -57,6 +57,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.ui.theme.AppleLinearFontFamily
 import com.example.ui.theme.NearBlack
 import com.example.ui.theme.PoppinsFontFamily
 import com.example.ui.theme.RegainLimeContainer
@@ -349,24 +350,24 @@ fun AuroraTimer(
 
             Spacer(modifier = Modifier.height(10.dp))
 
-            // Main Digits: Soothing, Ultra-Crisp Countdown
+            // Main Digits: Soothing, Ultra-Crisp Countdown with Apple Linear Display Font
             Text(
                 text = timeFormatted,
-                fontFamily = PoppinsFontFamily,
+                fontFamily = AppleLinearFontFamily,
                 fontWeight = FontWeight.Bold,
-                fontSize = if (hours > 0) 36.sp else 46.sp,
+                fontSize = if (hours > 0) 38.sp else 50.sp,
                 color = textPrimary,
                 textAlign = TextAlign.Center,
-                letterSpacing = (-1).sp,
+                letterSpacing = (-1.4).sp,
                 modifier = Modifier.testTag("aurora_timer_countdown_text")
             )
 
             // Progress percentage & phase cue
             Text(
                 text = if (isRunning) "${(progress * 100).toInt()}% completed" else if (progress > 0f) "Paused" else "Ready to Focus",
-                fontFamily = PoppinsFontFamily,
+                fontFamily = AppleLinearFontFamily,
                 fontWeight = FontWeight.Medium,
-                fontSize = 12.sp,
+                fontSize = 12.5.sp,
                 color = textSecondary
             )
 
