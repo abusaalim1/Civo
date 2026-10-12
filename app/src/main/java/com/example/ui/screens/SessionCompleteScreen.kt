@@ -473,7 +473,7 @@ private fun captureShareCardBitmap(context: Context, minutes: Int): Bitmap? {
         val heightSpec = View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED)
         composeView.measure(widthSpec, heightSpec)
         composeView.layout(0, 0, composeView.measuredWidth, composeView.measuredHeight)
-        drawToBitmap(composeView)
+        composeView.drawToBitmap()
     } catch (e: Exception) {
         null
     }
