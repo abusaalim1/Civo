@@ -13,9 +13,18 @@ object StrictModeManager {
     private const val PREFS_NAME = "focivo_strict_mode_prefs"
     private const val KEY_STRICT_MODE_ENABLED = "key_strict_mode_enabled"
     private const val KEY_SESSION_ACTIVE = "key_session_active"
+    // v1.3.0: multi-window protections
+    private const val KEY_BLOCK_SPLIT_SCREEN = "key_block_split_screen"
+    private const val KEY_BLOCK_FLOATING_WINDOW = "key_block_floating_window"
 
     private val _isStrictModeState = MutableStateFlow(true)
     val isStrictModeState: StateFlow<Boolean> = _isStrictModeState.asStateFlow()
+
+    private val _blockSplitScreenState = MutableStateFlow(false)
+    val blockSplitScreenState: StateFlow<Boolean> = _blockSplitScreenState.asStateFlow()
+
+    private val _blockFloatingWindowState = MutableStateFlow(false)
+    val blockFloatingWindowState: StateFlow<Boolean> = _blockFloatingWindowState.asStateFlow()
 
     private fun getPrefs(context: Context): SharedPreferences {
         return context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
@@ -24,6 +33,8 @@ object StrictModeManager {
     fun init(context: Context) {
         val enabled = getPrefs(context).getBoolean(KEY_STRICT_MODE_ENABLED, true)
         _isStrictModeState.value = enabled
+        _blockSplitScreenState.value = getPrefs(context).getBoolean(KEY_BLOCK_SPLIT_SCREEN, false)
+        _blockFloatingWindowState.value = getPrefs(context).getBoolean(KEY_BLOCK_FLOATING_WINDOW, false)
     }
 
     fun isStrictModeEnabled(context: Context): Boolean {
@@ -41,6 +52,25 @@ object StrictModeManager {
 
     fun isSessionActive(context: Context): Boolean {
         return getPrefs(context).getBoolean(KEY_SESSION_ACTIVE, false)
+    }
+
+    // v1.3.0: multi-window protections (default off; user opts in from Blocks)
+    fun isBlockSplitScreenEnabled(context: Context): Boolean {
+        return getPrefs(context).getBoolean(KEY_BLOCK_SPLIT_SCREEN, false)
+    }
+
+    fun setBlockSplitScreenEnabled(context: Context, enabled: Boolean) {
+        getPrefs(context).edit().putBoolean(KEY_BLOCK_SPLIT_SCREEN, enabled).apply()
+        _blockSplitScreenState.value = enabled
+    }
+
+    fun isBlockFloatingWindowEnabled(context: Context): Boolean {
+        return getPrefs(context).getBoolean(KEY_BLOCK_FLOATING_WINDOW, false)
+    }
+
+    fun setBlockFloatingWindowEnabled(context: Context, enabled: Boolean) {
+        getPrefs(context).edit().putBoolean(KEY_BLOCK_FLOATING_WINDOW, enabled).apply()
+        _blockFloatingWindowState.value = enabled
     }
 
     /**

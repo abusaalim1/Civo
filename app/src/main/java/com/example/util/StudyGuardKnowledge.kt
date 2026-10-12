@@ -217,11 +217,45 @@ object StudyGuardKnowledge {
     /** YouTube entry point: channel allowlist short-circuits to STUDY. */
     fun scoreVideo(title: String?, channel: String?): Verdict {
         val ch = normalize(channel.orEmpty())
-        if (ch.isNotEmpty() && EDUCATION_CHANNELS.any { ch.contains(it) }) {
-            return Verdict.STUDY
+        if (ch.isNotEmpty()) {
+            val allowed = effectiveChannels()
+            if (allowed.any { ch.contains(it) }) {
+                return Verdict.STUDY
+            }
         }
         return scoreText(listOfNotNull(title, channel).joinToString(" ")).verdict
     }
+
+    // ------------------------------------------------------------------
+    // v1.3.0 — user-customizable study channels (managed by
+    // StudyChannelsManager, which pushes prefs state here).
+    // ------------------------------------------------------------------
+    private val customChannels: MutableSet<String> = ConcurrentHashMap.newKeySet()
+    private val disabledChannels: MutableSet<String> = ConcurrentHashMap.newKeySet()
+
+    /** Built-in education channels, sorted — for the Study channels UI. */
+    fun getBuiltInChannels(): List<String> = EDUCATION_CHANNELS.sorted()
+
+    /** Replace the user-added channel set (entries are normalized). */
+    fun setCustomChannels(channels: Collection<String>) {
+        customChannels.clear()
+        for (c in channels) {
+            val n = normalize(c)
+            if (n.isNotEmpty()) customChannels.add(n)
+        }
+    }
+
+    /** Replace the set of built-in channels the user removed. */
+    fun setDisabledChannels(channels: Collection<String>) {
+        disabledChannels.clear()
+        for (c in channels) {
+            val n = normalize(c)
+            if (n.isNotEmpty()) disabledChannels.add(n)
+        }
+    }
+
+    private fun effectiveChannels(): Set<String> =
+        (EDUCATION_CHANNELS - disabledChannels) + customChannels
 
     /**
      * AI-chat entry point. Handles the sticky verdict internally:

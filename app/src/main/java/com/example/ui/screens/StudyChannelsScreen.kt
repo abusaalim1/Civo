@@ -1,0 +1,287 @@
+package com.example.ui.screens
+
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.School
+import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import com.example.ui.theme.NearBlack
+import com.example.ui.theme.RegainLimeDeepText
+import com.example.ui.theme.RegainLimePrimary
+import com.example.ui.theme.SecondaryTextLight
+import com.example.ui.theme.isAppInDarkTheme
+import com.example.util.StudyChannelsManager
+
+/**
+ * v1.3.0 — "Study channels" screen (Regain's "Watch only study channels",
+ * made real). Shows the built-in education channels plus the user's custom
+ * additions; any channel can be removed. Videos from allowlisted channels
+ * are always treated as study content by the YouTube guard.
+ */
+@Composable
+fun StudyChannelsScreen(
+    onBack: () -> Unit
+) {
+    val context = LocalContext.current
+    val focusManager = LocalFocusManager.current
+    val isDark = isAppInDarkTheme()
+
+    LaunchedEffect(Unit) {
+        StudyChannelsManager.init(context)
+    }
+    val channels by StudyChannelsManager.channelsState.collectAsState()
+    var newChannel by remember { mutableStateOf("") }
+    var showError by remember { mutableStateOf(false) }
+
+    fun submit() {
+        val ok = StudyChannelsManager.addCustomChannel(context, newChannel)
+        if (ok) {
+            newChannel = ""
+            showError = false
+            focusManager.clearFocus()
+        } else {
+            showError = true
+        }
+    }
+
+    val bg = if (isDark) Color(0xFF121511) else Color(0xFFF5FAFB)
+    val cardBg = if (isDark) Color(0xFF1D221C) else Color.White
+    val cardBorder = if (isDark) Color(0x358CE000) else Color(0xFFDCE6D2)
+    val titleColor = if (isDark) Color(0xFFF0F4ED) else NearBlack
+    val bodyColor = if (isDark) Color(0xFFA0A89E) else SecondaryTextLight
+    val accentText = if (isDark) RegainLimePrimary else RegainLimeDeepText
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(bg)
+            .padding(horizontal = 20.dp, vertical = 16.dp)
+    ) {
+        // Top bar
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Box(
+                modifier = Modifier
+                    .size(40.dp)
+                    .clip(CircleShape)
+                    .background(cardBg)
+                    .border(1.dp, cardBorder, CircleShape)
+                    .clickable(onClick = onBack),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                    contentDescription = "Back",
+                    tint = titleColor,
+                    modifier = Modifier.size(20.dp)
+                )
+            }
+            Spacer(modifier = Modifier.width(12.dp))
+            Column {
+                Text(
+                    text = "Study channels",
+                    style = MaterialTheme.typography.titleLarge.copy(
+                        fontWeight = FontWeight.Bold,
+                        color = titleColor,
+                        fontSize = 20.sp
+                    )
+                )
+                Text(
+                    text = "${channels.size} channels allowlisted",
+                    style = MaterialTheme.typography.bodySmall.copy(
+                        color = bodyColor,
+                        fontSize = 12.sp
+                    )
+                )
+            }
+        }
+
+        Spacer(modifier = Modifier.height(12.dp))
+
+        Text(
+            text = "Videos from these channels are always treated as study content by the AI guard.",
+            style = MaterialTheme.typography.bodySmall.copy(
+                color = bodyColor,
+                fontSize = 13.sp,
+                lineHeight = 18.sp
+            )
+        )
+
+        Spacer(modifier = Modifier.height(16.dp))
+
+        // Add custom channel
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            OutlinedTextField(
+                value = newChannel,
+                onValueChange = { newChannel = it; showError = false },
+                placeholder = { Text("Add a channel name…", fontSize = 14.sp) },
+                singleLine = true,
+                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                keyboardActions = KeyboardActions(onDone = { submit() }),
+                isError = showError,
+                modifier = Modifier.weight(1f),
+                shape = RoundedCornerShape(14.dp)
+            )
+            Box(
+                modifier = Modifier
+                    .size(52.dp)
+                    .clip(CircleShape)
+                    .background(RegainLimePrimary)
+                    .clickable(onClick = { submit() }),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Add,
+                    contentDescription = "Add channel",
+                    tint = NearBlack,
+                    modifier = Modifier.size(24.dp)
+                )
+            }
+        }
+        if (showError) {
+            Spacer(modifier = Modifier.height(6.dp))
+            Text(
+                text = "Please enter a valid, non-duplicate channel name.",
+                style = MaterialTheme.typography.bodySmall.copy(
+                    color = Color(0xFFFF5252),
+                    fontSize = 12.sp
+                )
+            )
+        }
+
+        Spacer(modifier = Modifier.height(16.dp))
+
+        // Channel list
+        LazyColumn(
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+            modifier = Modifier.weight(1f)
+        ) {
+            items(channels, key = { it.name }) { entry ->
+                Surface(
+                    color = cardBg,
+                    shape = RoundedCornerShape(14.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .border(1.dp, cardBorder, RoundedCornerShape(14.dp))
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.School,
+                            contentDescription = null,
+                            tint = accentText,
+                            modifier = Modifier.size(20.dp)
+                        )
+                        Spacer(modifier = Modifier.width(10.dp))
+                        Text(
+                            text = entry.name,
+                            style = MaterialTheme.typography.bodyMedium.copy(
+                                color = titleColor,
+                                fontSize = 14.sp,
+                                fontWeight = FontWeight.Medium
+                            ),
+                            modifier = Modifier.weight(1f)
+                        )
+                        if (entry.isCustom) {
+                            Surface(
+                                color = RegainLimePrimary.copy(alpha = 0.18f),
+                                shape = RoundedCornerShape(6.dp)
+                            ) {
+                                Text(
+                                    text = "CUSTOM",
+                                    style = MaterialTheme.typography.labelSmall.copy(
+                                        color = accentText,
+                                        fontSize = 9.sp,
+                                        fontWeight = FontWeight.Bold
+                                    ),
+                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp)
+                                )
+                            }
+                            Spacer(modifier = Modifier.width(8.dp))
+                        }
+                        Box(
+                            modifier = Modifier
+                                .size(32.dp)
+                                .clip(CircleShape)
+                                .clickable { StudyChannelsManager.removeChannel(context, entry) },
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Close,
+                                contentDescription = "Remove channel",
+                                tint = bodyColor,
+                                modifier = Modifier.size(18.dp)
+                            )
+                        }
+                    }
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(12.dp))
+
+        // Reset
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable { StudyChannelsManager.resetToDefaults(context) }
+                .padding(vertical = 8.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            Text(
+                text = "Reset to defaults",
+                style = MaterialTheme.typography.bodyMedium.copy(
+                    color = accentText,
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.SemiBold
+                )
+            )
+        }
+    }
+}

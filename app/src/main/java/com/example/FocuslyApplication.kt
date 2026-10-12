@@ -60,6 +60,12 @@ class FocuslyApplication : Application() {
         }
 
         try {
+            com.example.util.StudyChannelsManager.init(this)
+        } catch (e: Throwable) {
+            Log.e("FocuslyApplication", "Failed to initialize StudyChannelsManager: ${e.message}", e)
+        }
+
+        try {
             com.example.util.DeepFocusManager.init(this)
         } catch (e: Throwable) {
             Log.e("FocuslyApplication", "Failed to initialize DeepFocusManager: ${e.message}", e)

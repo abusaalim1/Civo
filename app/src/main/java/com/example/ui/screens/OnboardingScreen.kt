@@ -6,6 +6,7 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -32,6 +33,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -44,20 +46,47 @@ import com.example.ui.theme.RegainLimeDeepText
 import com.example.ui.theme.RegainLimePrimary
 import com.example.ui.theme.isAppInDarkTheme
 
+// v1.3.0 — onboarding distraction quiz: answer key -> suggested blocked packages.
+// "games" intentionally suggests nothing: installed games can't be guessed honestly.
+private val DISTRACTION_OPTIONS = listOf(
+    Triple("\uD83D\uDD14", "Distractions from notifications", "notifications" to "com.instagram.android,com.facebook.katana"),
+    Triple("\uD83C\uDFAE", "Games", "games" to ""),
+    Triple("\uD83D\uDCF1", "Texting on my phone", "texting" to "com.whatsapp,com.facebook.orca"),
+    Triple("\uD83D\uDCF3", "Scrolling reels & shorts", "reels" to "com.google.android.youtube,com.instagram.android")
+)
+
+private fun applyDistractionSuggestion(context: android.content.Context, answerKey: String) {
+    try {
+        val prefs = context.getSharedPreferences("focivo_onboarding_prefs", android.content.Context.MODE_PRIVATE)
+        prefs.edit().putString("biggest_distraction", answerKey).apply()
+        val suggestion = DISTRACTION_OPTIONS.firstOrNull { it.third.first == answerKey }?.third?.second.orEmpty()
+        if (suggestion.isNotBlank()) {
+            // Only pre-fill when the user hasn't chosen blocked apps yet — never overwrite.
+            val shieldPrefs = context.getSharedPreferences("regain_shield_prefs", android.content.Context.MODE_PRIVATE)
+            if (shieldPrefs.getString("blocked_packages", "").isNullOrBlank()) {
+                shieldPrefs.edit().putString("blocked_packages", suggestion).apply()
+            }
+        }
+    } catch (_: Exception) { }
+}
+
 @Composable
 fun OnboardingScreen(
     onCompleteOnboarding: (dailyGoalMinutes: Int) -> Unit
 ) {
     val isDark = isAppInDarkTheme()
+    val context = LocalContext.current
     var currentStep by remember { mutableIntStateOf(0) }
     var selectedGoalHours by remember { mutableIntStateOf(4) }
     var isTypingFinished by remember { mutableStateOf(false) }
+    var selectedDistraction by remember { mutableStateOf<String?>(null) }
 
     val steps = listOf(
         Pair("Hi, I'm Civo — think of me as your focus companion. I'll help you block distractions, build strong study habits, and stay on track!", "Eliminate modern cognitive noise. Organize your daily priorities and dedicate pure unbroken time to your essential work."),
         Pair("Build deeper focus habits with me.", "Harness science-backed focus cadences, customizable deep-work intervals, and calm generative ambient soundscapes."),
         Pair("Track your study growth effortless.", "Insightful metrics without judgment. Observe your peak focus hours, consistency streaks, and energy flow effortlessly."),
-        Pair("Set your daily focus goal with Civo.", "Choose a sustainable target. You can adjust this anytime in your preferences.")
+        Pair("Set your daily focus goal with Civo.", "Choose a sustainable target. You can adjust this anytime in your preferences."),
+        Pair("What's your biggest distraction when you're trying to focus?", "Pick the one that steals your focus most often — I'll suggest the right apps to block.")
     )
 
     Scaffold(
@@ -78,7 +107,7 @@ fun OnboardingScreen(
                     .padding(top = 12.dp),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                for (i in 0..3) {
+                for (i in 0..4) {
                     val isActive = i <= currentStep
                     Box(
                         modifier = Modifier
@@ -172,6 +201,69 @@ fun OnboardingScreen(
                             }
                         }
                     }
+
+                    // v1.3.0: distraction quiz (final onboarding step)
+                    if (step == 4) {
+                        Spacer(modifier = Modifier.height(28.dp))
+
+                        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                            DISTRACTION_OPTIONS.forEach { (emoji, label, keyPair) ->
+                                val isSelected = selectedDistraction == keyPair.first
+                                GlassCard(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clickable { selectedDistraction = keyPair.first },
+                                    shape = RoundedCornerShape(18.dp),
+                                    accentBorder = isSelected
+                                ) {
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .background(
+                                                if (isSelected) RegainLimePrimary.copy(alpha = 0.15f) else Color.Transparent
+                                            )
+                                            .padding(horizontal = 18.dp, vertical = 16.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.SpaceBetween
+                                    ) {
+                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                            Text(text = emoji, fontSize = 22.sp)
+                                            Spacer(modifier = Modifier.width(14.dp))
+                                            Text(
+                                                text = label,
+                                                style = MaterialTheme.typography.titleMedium.copy(
+                                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                                                    color = if (isSelected) (if (isDark) RegainLimePrimary else RegainLimeDeepText) else MaterialTheme.colorScheme.onSurface,
+                                                    fontSize = 15.sp
+                                                )
+                                            )
+                                        }
+                                        Box(
+                                            modifier = Modifier
+                                                .size(22.dp)
+                                                .clip(CircleShape)
+                                                .border(
+                                                    2.dp,
+                                                    if (isSelected) RegainLimePrimary else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f),
+                                                    CircleShape
+                                                )
+                                                .background(if (isSelected) RegainLimePrimary else Color.Transparent),
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            if (isSelected) {
+                                                Box(
+                                                    modifier = Modifier
+                                                        .size(10.dp)
+                                                        .clip(CircleShape)
+                                                        .background(if (isDark) Color(0xFF121511) else Color.White)
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
                 }
             }
 
@@ -205,17 +297,18 @@ fun OnboardingScreen(
                 }
 
                 GlassButton(
-                    text = if (currentStep == 3) "Start Studying with Civo" else "Continue",
+                    text = if (currentStep == 4) "Start Studying with Civo" else "Continue",
                     onClick = {
-                        if (currentStep < 3) {
+                        if (currentStep < 4) {
                             currentStep += 1
                             isTypingFinished = false
                         } else {
+                            selectedDistraction?.let { applyDistractionSuggestion(context, it) }
                             onCompleteOnboarding(selectedGoalHours * 60)
                         }
                     },
                     isPrimary = true,
-                    enabled = isTypingFinished
+                    enabled = if (currentStep == 4) selectedDistraction != null else isTypingFinished
                 )
             }
         }

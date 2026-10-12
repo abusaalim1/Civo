@@ -3,11 +3,16 @@ package com.example.service
 import android.accessibilityservice.AccessibilityService
 import android.content.Context
 import android.content.Intent
+import android.graphics.Rect
 import android.media.AudioManager
+import android.os.Build
+import android.util.DisplayMetrics
 import android.util.Log
 import android.view.KeyEvent
+import android.view.WindowManager
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
+import android.view.accessibility.AccessibilityWindowInfo
 import com.example.MainActivity
 import com.example.util.AiStudyGuardManager
 import com.example.util.EssentialAppsGuard
@@ -50,6 +55,8 @@ class AiStudyAccessibilityService : AccessibilityService() {
         private val lastAiChatGeminiMs = mutableMapOf<String, Long>()
         // v1.1.6: liveness heartbeat write throttle
         private var lastLivenessWriteMs: Long = 0L
+        // v1.3.0: multi-window protection scan throttle
+        private var lastMultiWindowScanMs: Long = 0L
     }
 
     override fun onServiceConnected() {
@@ -74,6 +81,95 @@ class AiStudyAccessibilityService : AccessibilityService() {
                 lower == "com.android.packageinstaller" ||
                 lower.contains("packageinstaller") ||
                 lower.contains("uninstaller")
+    }
+
+    /**
+     * v1.3.0 — multi-window protections.
+     *
+     * Scans interactive application windows (best-effort; requires the
+     * service's flagRetrieveInteractiveWindows) for blocked packages running
+     * in split-screen or floating/freeform windows, then redirects them to the
+     * standard BlockedAppLockActivity.
+     *
+     * Signals used:
+     * - split-screen: 2+ TYPE_APPLICATION windows visible at once.
+     * - floating: an app window occupying < 85% of the display in BOTH
+     *   dimensions (excludes fullscreen and half-screen split panes).
+     *
+     * Honest limitation: some OEMs restrict getWindows() data and PiP-style
+     * mini windows may also match the floating heuristic — both are treated
+     * as floating (blocking them is the safer behavior for a focus app).
+     */
+    private fun enforceMultiWindowProtections(nowTime: Long) {
+        val ctx = applicationContext
+        val blockSplit = try { StrictModeManager.isBlockSplitScreenEnabled(ctx) } catch (_: Exception) { false }
+        val blockFloat = try { StrictModeManager.isBlockFloatingWindowEnabled(ctx) } catch (_: Exception) { false }
+        if (!blockSplit && !blockFloat) return
+        if (nowTime - lastMultiWindowScanMs < 3000L) return
+        lastMultiWindowScanMs = nowTime
+        try {
+            val blockedList = FocusShieldService.getActiveBlockedPackages(ctx)
+            if (blockedList.isEmpty()) return
+            val wins = try { windows } catch (_: Exception) { null } ?: return
+            val appWins = wins.filter {
+                try { it.type == AccessibilityWindowInfo.TYPE_APPLICATION } catch (_: Exception) { false }
+            }
+            if (appWins.isEmpty()) return
+            val (dispW, dispH) = getDisplaySizePx()
+            if (dispW <= 0 || dispH <= 0) return
+            val multiWindowActive = appWins.size >= 2
+            val rect = Rect()
+            for (w in appWins) {
+                val pkg = try { w.root?.packageName?.toString() } catch (_: Exception) { null }
+                    ?: continue
+                if (pkg.equals(ctx.packageName, ignoreCase = true)) continue
+                val isBlocked = blockedList.any { b ->
+                    pkg.equals(b, ignoreCase = true) || pkg.startsWith(b, ignoreCase = true)
+                }
+                if (!isBlocked) continue
+                try { w.getBoundsInScreen(rect) } catch (_: Exception) { continue }
+                if (rect.width() <= 0 || rect.height() <= 0) continue
+                val isFloating = rect.width() < dispW * 0.85f && rect.height() < dispH * 0.85f
+                val inSplit = multiWindowActive && !isFloating
+                val shouldBlock = (blockFloat && isFloating) || (blockSplit && inSplit)
+                if (!shouldBlock) continue
+                if (nowTime - lastGeneralAppInterceptTimeMs > 2500L || lastGeneralInterceptedPkg != pkg) {
+                    lastGeneralAppInterceptTimeMs = nowTime
+                    lastGeneralInterceptedPkg = pkg
+                    val mode = if (isFloating) "floating window" else "split-screen"
+                    Log.w(TAG, "[MultiWindow] Blocked app ($pkg) in $mode during focus — intercepting.")
+                    val friendlyName = try { FocusShieldService.friendlyAppName(ctx, pkg) } catch (_: Exception) { pkg }
+                    val intent = com.example.ui.screens.BlockedAppLockActivity.createIntent(
+                        context = ctx,
+                        packageName = pkg,
+                        appName = friendlyName,
+                        durationSec = try { FocusShieldService.getRemainingSeconds(ctx) } catch (_: Exception) { 0 },
+                        reason = "$friendlyName is locked during your active focus session ($mode is blocked).",
+                        isPunishment = false
+                    )
+                    try { ctx.startActivity(intent) } catch (_: Exception) {}
+                }
+                return
+            }
+        } catch (_: Exception) { }
+    }
+
+    @Suppress("DEPRECATION")
+    private fun getDisplaySizePx(): Pair<Int, Int> {
+        return try {
+            val wm = applicationContext.getSystemService(Context.WINDOW_SERVICE) as? WindowManager
+                ?: return 0 to 0
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                val b = wm.currentWindowMetrics.bounds
+                b.width() to b.height()
+            } else {
+                val dm = DisplayMetrics()
+                wm.defaultDisplay.getMetrics(dm)
+                dm.widthPixels to dm.heightPixels
+            }
+        } catch (_: Exception) {
+            0 to 0
+        }
     }
 
     /**
@@ -227,6 +323,13 @@ class AiStudyAccessibilityService : AccessibilityService() {
                     }
                     return
                 }
+            }
+
+            // 5b. v1.3.0: multi-window protections — a blocked app opened in
+            // split-screen or a floating window can bypass the fullscreen
+            // intercept above, so scan interactive windows (best-effort).
+            if (isStudyPeriod && (isWindowStateChanged || eventType == AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED)) {
+                enforceMultiWindowProtections(nowTime)
             }
 
             // 6. Check per-app daily limit on app open

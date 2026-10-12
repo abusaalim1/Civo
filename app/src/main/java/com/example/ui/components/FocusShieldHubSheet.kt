@@ -246,6 +246,7 @@ fun FocusShieldHubSheet(
 
     var selectedDurationMinutes by remember { mutableIntStateOf(25) }
     var showPermissionSheet by remember { mutableStateOf(false) }
+    var showStudyChannels by remember { mutableStateOf(false) }
     var showAiAccessibilityOptInDialog by remember { mutableStateOf(false) }
     var pendingAction by remember { mutableStateOf<(() -> Unit)?>(null) }
     var searchQuery by remember { mutableStateOf("") }
@@ -253,6 +254,8 @@ fun FocusShieldHubSheet(
 
     val isAllPermissionsGranted = hasUsagePermission && hasOverlayPermission && hasAccessibilityPermission
     val isStrictModeEnabled by com.example.util.StrictModeManager.isStrictModeState.collectAsState()
+    val isBlockSplitScreen by com.example.util.StrictModeManager.blockSplitScreenState.collectAsState()
+    val isBlockFloatingWindow by com.example.util.StrictModeManager.blockFloatingWindowState.collectAsState()
     val isDeepFocusEnabled by com.example.util.DeepFocusManager.isDeepFocusEnabledState.collectAsState()
     val isShortsLockEnabled by com.example.util.ShortsLockManager.isShortsLockState.collectAsState()
     val isReelsLockEnabled by com.example.util.ShortsLockManager.isReelsLockState.collectAsState()
@@ -1499,6 +1502,34 @@ fun FocusShieldHubSheet(
                                 )
                             )
                         }
+
+                        // v1.3.0: multi-window protections (compact sub-rows)
+                        Spacer(modifier = Modifier.height(10.dp))
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(1.dp)
+                                .background(if (isDark) Color(0x18FFFFFF) else Color(0x11000000))
+                        )
+                        Spacer(modifier = Modifier.height(6.dp))
+                        MultiWindowProtectionRow(
+                            title = "Block split screen",
+                            subtitle = "Blocked apps cannot open in split-screen during focus.",
+                            checked = isBlockSplitScreen,
+                            onCheckedChange = { com.example.util.StrictModeManager.setBlockSplitScreenEnabled(context, it) },
+                            isDark = isDark,
+                            textPrimary = textPrimary,
+                            textSecondary = textSecondary
+                        )
+                        MultiWindowProtectionRow(
+                            title = "Block floating window",
+                            subtitle = "Blocked apps cannot open in a floating window during focus.",
+                            checked = isBlockFloatingWindow,
+                            onCheckedChange = { com.example.util.StrictModeManager.setBlockFloatingWindowEnabled(context, it) },
+                            isDark = isDark,
+                            textPrimary = textPrimary,
+                            textSecondary = textSecondary
+                        )
                     }
                 }
             }
@@ -1875,6 +1906,48 @@ fun FocusShieldHubSheet(
                                 }
                             }
                         }
+
+                        Spacer(modifier = Modifier.height(10.dp))
+
+                        // v1.3.0: Study channels allowlist entry
+                        Surface(
+                            color = accentCyan.copy(alpha = 0.12f),
+                            shape = RoundedCornerShape(12.dp),
+                            onClick = { showStudyChannels = true },
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        text = "Study channels",
+                                        style = MaterialTheme.typography.titleSmall.copy(
+                                            color = textPrimary,
+                                            fontWeight = FontWeight.Bold,
+                                            fontSize = 12.5.sp
+                                        )
+                                    )
+                                    Text(
+                                        text = "Videos from allowlisted channels are always treated as study content.",
+                                        style = MaterialTheme.typography.bodySmall.copy(
+                                            color = textSecondary,
+                                            fontSize = 10.5.sp
+                                        )
+                                    )
+                                }
+                                Text(
+                                    text = "Manage >",
+                                    style = MaterialTheme.typography.labelSmall.copy(
+                                        color = accentCyan,
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 11.sp
+                                    )
+                                )
+                            }
+                        }
                     }
                 }
             }
@@ -2195,6 +2268,19 @@ fun FocusShieldHubSheet(
             )
         }
 
+        // v1.3.0: Study channels allowlist (full-screen overlay)
+        if (showStudyChannels) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(if (isDark) Color(0xFF121511) else Color(0xFFF5FAFB))
+            ) {
+                com.example.ui.screens.StudyChannelsScreen(
+                    onBack = { showStudyChannels = false }
+                )
+            }
+        }
+
         if (showScheduleEditSheet) {
             ScheduleEditSheet(
                 schedule = editingSchedule,
@@ -2223,5 +2309,57 @@ fun FocusShieldHubSheet(
                 }
             )
         }
+    }
+}
+
+/**
+ * v1.3.0 — compact toggle row for the multi-window protections
+ * (Block split screen / Block floating window) inside the Strict Mode card.
+ */
+@Composable
+private fun MultiWindowProtectionRow(
+    title: String,
+    subtitle: String,
+    checked: Boolean,
+    onCheckedChange: (Boolean) -> Unit,
+    isDark: Boolean,
+    textPrimary: Color,
+    textSecondary: Color
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 8.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = title,
+                style = MaterialTheme.typography.titleSmall.copy(
+                    fontWeight = FontWeight.SemiBold,
+                    fontSize = 13.5.sp,
+                    color = textPrimary
+                )
+            )
+            Spacer(modifier = Modifier.height(2.dp))
+            Text(
+                text = subtitle,
+                style = MaterialTheme.typography.bodySmall.copy(
+                    color = textSecondary,
+                    fontSize = 11.sp
+                )
+            )
+        }
+        Spacer(modifier = Modifier.width(12.dp))
+        Switch(
+            checked = checked,
+            onCheckedChange = onCheckedChange,
+            colors = SwitchDefaults.colors(
+                checkedThumbColor = NearBlack,
+                checkedTrackColor = Color(0xFFFF5252),
+                uncheckedTrackColor = if (isDark) Color(0xFF374151) else Color(0xFFD1D5DB)
+            )
+        )
     }
 }
